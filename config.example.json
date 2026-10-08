@@ -1,0 +1,21 @@
+{
+  "port": 8765,
+  "leaseSeconds": 300,
+  "bastions": [
+    {
+      "id": "qizhi",
+      "name": "Example Qizhi bastion",
+      "host": "192.0.2.10",
+      "port": 22,
+      "username": "bastion-user"
+    }
+  ],
+  "assets": [
+    {
+      "name": "example-asset",
+      "ip": "192.0.2.20",
+      "username": "appuser",
+      "bastion": "qizhi"
+    }
+  ]
+}

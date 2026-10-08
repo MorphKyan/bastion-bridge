@@ -1,0 +1,30 @@
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+.env*
+*.log
+pass.txt
+credentials*.json
+*.sock
+
+# Local connection configuration and runtime data
+config.json
+config/
+state/
+.ai-term/
+known_hosts
+sessions.json
+operations/
+*.output
+
+# Private keys
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+*.pem
+*.key
+*.p12
+*.pfx
