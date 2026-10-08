@@ -365,7 +365,7 @@ export class Manager extends EventEmitter {
           `${bastion.username}@${bastion.host}`,
         ];
         s.binding = await this.terminal.create(
-          'ai-term',
+          'bastion-bridge',
           name,
           'exec ' + args.map(shellQuote).join(' '),
         );
@@ -1406,8 +1406,8 @@ export class Manager extends EventEmitter {
         return this.importSession(args.asset, args.socket, args.name);
       case 'discover':
         return [
-          ...(await this.terminal.list('ai-term')),
-          ...(await this.terminal.list('ai-term-inspect')),
+          ...(await this.terminal.list('bastion-bridge')),
+          ...(await this.terminal.list('bastion-bridge-inspect')),
         ];
       case 'verify_host':
         return this.verifyHost(args.asset, args.fingerprint);

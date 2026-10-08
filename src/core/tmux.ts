@@ -64,7 +64,7 @@ export class Tmux implements Terminal {
     return this.run(b.socket, ['capture-pane', '-p', '-t', b.pane, '-S', '-1000']);
   }
   async send(b: Binding, text: string, submit = false) {
-    const buffer = `ai-term-${randomUUID()}`;
+    const buffer = `bastion-bridge-${randomUUID()}`;
     await new Promise<void>((resolve, reject) => {
       const child = spawn('tmux', ['-L', b.socket, 'load-buffer', '-b', buffer, '-'], {
         stdio: ['pipe', 'ignore', 'ignore'],

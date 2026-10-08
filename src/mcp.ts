@@ -6,7 +6,7 @@ import { actions, agentActions, descriptions } from './actions.js';
 import { ensureDaemon, rpc } from './client.js';
 import { ToolError } from './shared.js';
 
-const server = new McpServer({ name: 'ai-term', version: '0.1.0' });
+const server = new McpServer({ name: 'bastion-bridge', version: '0.1.0' });
 const owner = `Agent ${randomUUID().slice(0, 8)}`;
 for (const action of agentActions) {
   server.registerTool(

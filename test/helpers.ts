@@ -21,7 +21,7 @@ export async function eventually<T>(
   throw new Error('Timed out waiting for test condition.');
 }
 export async function localFixture() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-term-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bastion-bridge-test-'));
   const store = new Store(root);
   const terminal = new Tmux();
   const config = store.config();
@@ -30,7 +30,7 @@ export async function localFixture() {
   ];
   config.assets = [{ name: 'local-test', ip: '127.0.0.1', username: 'tester', bastion: 'qizhi' }];
   store.saveConfig(config);
-  const socket = `aitest-${randomUUID().slice(0, 12)}`;
+  const socket = `bastion-bridge-test-${randomUUID().slice(0, 12)}`;
   const binding = await terminal.create(
     socket,
     'fixture',

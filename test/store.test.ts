@@ -6,7 +6,7 @@ import path from 'node:path';
 import { Store, configSchema } from '../src/core/store.js';
 
 test('new stores start empty and preserve existing private configuration', (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-term-store-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bastion-bridge-store-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const store = new Store(root);
   assert.deepEqual(store.config().bastions, []);

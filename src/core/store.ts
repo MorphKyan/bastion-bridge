@@ -74,10 +74,16 @@ export class Store {
   constructor(base?: string) {
     this.configDir = base
       ? path.join(base, 'config')
-      : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'ai-term');
+      : path.join(
+          process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'),
+          'bastion-bridge',
+        );
     this.stateDir = base
       ? path.join(base, 'state')
-      : path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local/state'), 'ai-term');
+      : path.join(
+          process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local/state'),
+          'bastion-bridge',
+        );
     for (const dir of [this.configDir, this.stateDir, this.operationDir]) {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       fs.chmodSync(dir, 0o700);

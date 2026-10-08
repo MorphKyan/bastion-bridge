@@ -8,7 +8,7 @@ import { startServer } from '../src/server.js';
 import { eventually } from './helpers.js';
 import { shellQuote } from '../src/core/framing.js';
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-term-web-'));
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bastion-bridge-web-'));
 const store = new Store(root);
 const config = store.config();
 config.bastions = [
@@ -18,7 +18,7 @@ config.port = 8766;
 config.assets = [{ name: 'demo', ip: '127.0.0.1', username: 'tester', bastion: 'qizhi' }];
 store.saveConfig(config);
 const terminal = new Tmux();
-const socket = `aiweb-${randomUUID().slice(0, 8)}`;
+const socket = `bastion-bridge-web-${randomUUID().slice(0, 8)}`;
 const binding = await terminal.create(
   socket,
   'fixture',

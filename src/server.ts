@@ -39,7 +39,7 @@ async function holdLock(store: Store) {
   });
   return child;
 }
-export async function startServer(store = new Store(process.env.AI_TERM_HOME)) {
+export async function startServer(store = new Store(process.env.BASTION_BRIDGE_HOME)) {
   const lock = await holdLock(store);
   const manager = new Manager(store);
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
@@ -312,7 +312,7 @@ export async function startServer(store = new Store(process.env.AI_TERM_HOME)) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   startServer()
     .then((server) => {
-      process.stdout.write(`AI Term listening at ${server.manager.webUrl()}\n`);
+      process.stdout.write(`bastion bridge listening at ${server.manager.webUrl()}\n`);
       process.on('SIGINT', () => void server.close());
       process.on('SIGTERM', () => void server.close());
     })

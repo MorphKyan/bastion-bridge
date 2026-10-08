@@ -271,7 +271,7 @@ function App() {
         <div className="brand">
           <span className="brand-icon">›_</span>
           <div>
-            <strong>AI Term</strong>
+            <strong>bastion bridge</strong>
             <span>堡垒机会话工作台</span>
           </div>
         </div>

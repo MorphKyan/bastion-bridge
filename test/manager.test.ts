@@ -52,8 +52,8 @@ test(
     const replay = await run("printf 'first-中文'; printf ' error' >&2; exit 7", 'one');
     assert.equal(replay.id, result.id);
     await assert.rejects(() => run('echo wrong', 'one'), { code: 'REQUEST_CONFLICT' });
-    await run('cd /; export AI_TERM_TEST_VAR=abc; exit 0');
-    result = await run('printf "%s" "${AI_TERM_TEST_VAR-unset}"');
+    await run('cd /; export BASTION_BRIDGE_TEST_VAR=abc; exit 0');
+    result = await run('printf "%s" "${BASTION_BRIDGE_TEST_VAR-unset}"');
     assert.equal(result.output, 'unset');
     result = (await f.manager.executeSubshell(
       { asset: 'local-test', command: 'pwd', cwd: '/tmp', waitMs: 3000 },

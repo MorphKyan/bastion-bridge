@@ -42,14 +42,14 @@ export class OutputCleaner {
 }
 export function makeCommand(command: string, cwd?: string, mode: ExecutionMode = 'session') {
   const nonce = randomBytes(16).toString('hex');
-  const begin = `__AITERM_BEGIN_${nonce}__`;
-  const end = `__AITERM_END_${nonce}__`;
+  const begin = `__BASTION_BRIDGE_BEGIN_${nonce}__`;
+  const end = `__BASTION_BRIDGE_END_${nonce}__`;
   const execution =
     mode === 'session'
       ? `${cwd ? `builtin cd -- ${shellQuote(cwd)} && ` : ''}builtin eval -- ${shellQuote(command)}`
       : `command bash -c ${shellQuote(cwd ? `cd -- ${shellQuote(cwd)} || exit $?\n${command}` : command)}`;
   // Split the sentinel in the source so terminal echo cannot match the real sentinel.
-  const line = `builtin printf '\\n%s%s\\n' '__AITERM_BEGIN_' '${nonce}__'; ${execution}; builtin printf '\\n%s%s:%s\\n' '__AITERM_END_' '${nonce}__' "$?"`;
+  const line = `builtin printf '\\n%s%s\\n' '__BASTION_BRIDGE_BEGIN_' '${nonce}__'; ${execution}; builtin printf '\\n%s%s:%s\\n' '__BASTION_BRIDGE_END_' '${nonce}__' "$?"`;
   return { begin, end, line };
 }
 export class CommandFrame {

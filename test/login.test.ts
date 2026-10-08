@@ -119,7 +119,7 @@ class Gateway implements Terminal {
   }
 }
 async function fixture(t: any, menu = false) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-term-login-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bastion-bridge-login-'));
   const store = new Store(root);
   const gateway = new Gateway(menu);
   const c = store.config();

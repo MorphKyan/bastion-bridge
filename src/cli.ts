@@ -5,29 +5,29 @@ import { rpc, ensureDaemon, stopDaemon } from './client.js';
 import { startServer } from './server.js';
 import { ToolError } from './shared.js';
 
-const help = `AI Term — 本机堡垒机会话工具
-  ai-term serve                         前台运行（停止后 SSH 保留）
-  ai-term start | stop | web | status
-  ai-term exec ASSET 'COMMAND' --lease TOKEN [--cwd DIR] [--request-id ID] [--wait-ms 30000]
-  ai-term subshell-exec ASSET 'COMMAND' [--cwd DIR] [--lease TOKEN] [--request-id ID]
-  ai-term subshell-batch ASSET --commands-file FILE [--lease TOKEN] [--request-id ID]
-  ai-term list
-  ai-term acquire | connect | reconnect | takeover | release | renew | close | confirm ASSET [--lease TOKEN]
-  ai-term send ASSET 'TEXT' --lease TOKEN [--submit]
-  ai-term key ASSET Ctrl-C --lease TOKEN
-  ai-term read ASSET --lease TOKEN [--cursor N]
-  ai-term wait OPERATION [--lease TOKEN] [--wait-ms 30000]
-  ai-term result OPERATION [--cursor N]
-  ai-term import ASSET --socket TMUX_SOCKET --name TMUX_SESSION
-  ai-term credentials --bastion ID --username NAME --password-file PRIVATE_FILE
-  ai-term code ASSET --code-file PRIVATE_FILE
-  ai-term config [--config-file FILE]
-  ai-term call ACTION [--args-file FILE]
+const help = `bastion bridge — 本机堡垒机会话工具
+  bastion-bridge serve                         前台运行（停止后 SSH 保留）
+  bastion-bridge start | stop | web | status
+  bastion-bridge exec ASSET 'COMMAND' --lease TOKEN [--cwd DIR] [--request-id ID] [--wait-ms 30000]
+  bastion-bridge subshell-exec ASSET 'COMMAND' [--cwd DIR] [--lease TOKEN] [--request-id ID]
+  bastion-bridge subshell-batch ASSET --commands-file FILE [--lease TOKEN] [--request-id ID]
+  bastion-bridge list
+  bastion-bridge acquire | connect | reconnect | takeover | release | renew | close | confirm ASSET [--lease TOKEN]
+  bastion-bridge send ASSET 'TEXT' --lease TOKEN [--submit]
+  bastion-bridge key ASSET Ctrl-C --lease TOKEN
+  bastion-bridge read ASSET --lease TOKEN [--cursor N]
+  bastion-bridge wait OPERATION [--lease TOKEN] [--wait-ms 30000]
+  bastion-bridge result OPERATION [--cursor N]
+  bastion-bridge import ASSET --socket TMUX_SOCKET --name TMUX_SESSION
+  bastion-bridge credentials --bastion ID --username NAME --password-file PRIVATE_FILE
+  bastion-bridge code ASSET --code-file PRIVATE_FILE
+  bastion-bridge config [--config-file FILE]
+  bastion-bridge call ACTION [--args-file FILE]
 
 输出均为 JSON。密码/验证码只能由私有文件读取，不提供命令行明文参数。
 默认流程：acquire → exec（当前 Bash 环境持续保留）→ release（保留 SSH 和环境）。
 高级操作：subshell-exec/subshell-batch 使用独立子 Shell，可自动申请和释放占用。
-AI_TERM_HOME 可指定独立配置/状态目录；默认使用 XDG 目录。`;
+BASTION_BRIDGE_HOME 可指定独立配置/状态目录；默认使用 XDG 目录。`;
 async function main() {
   const { positionals: p, values: v } = parseArgs({
     allowPositionals: true,
@@ -57,7 +57,7 @@ async function main() {
   }
   if (command === 'serve') {
     const server = await startServer();
-    process.stdout.write(`AI Term: ${server.manager.webUrl()}\n`);
+    process.stdout.write(`bastion bridge: ${server.manager.webUrl()}\n`);
     process.on('SIGINT', () => void server.close());
     process.on('SIGTERM', () => void server.close());
     return;

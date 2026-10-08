@@ -13,6 +13,8 @@ credentials*.json
 config.json
 config/
 state/
+.bastion-bridge/
+# Continue excluding private data from installations before the rename.
 .ai-term/
 known_hosts
 sessions.json

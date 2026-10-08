@@ -11,7 +11,7 @@
 
 ## Asset access
 
-- Use this project's `ai-term` CLI / MCP for Qizhi assets listed in the local private configuration. Select by configured IP and retain one persistent managed session per asset.
+- Use this project's `bastion-bridge` CLI / MCP for Qizhi assets listed in the local private configuration. Select by configured IP and retain one persistent managed session per asset.
 - Use `acquire → exec → release` with the current lease token. Enter passwords and verification codes through the web interface or private files as documented in README.md.
 - All other servers continue to use their existing direct-SSH connections. Preserve `/root/.ssh/config`, SSH keys, host records, and the `qizhi-bastion` alias.
 - Keep the project's configuration/state and managed sessions, OpenSSH, and shared tmux installation.

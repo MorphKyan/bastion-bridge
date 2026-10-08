@@ -10,7 +10,7 @@ export async function rpc(
   action: string,
   args: unknown = {},
   owner = 'CLI',
-  store = new Store(process.env.AI_TERM_HOME),
+  store = new Store(process.env.BASTION_BRIDGE_HOME),
 ): Promise<any> {
   return new Promise((resolve, reject) => {
     const req = http.request(
@@ -40,7 +40,7 @@ export async function rpc(
     req.end(JSON.stringify({ action, args, owner }));
   });
 }
-export async function ensureDaemon(store = new Store(process.env.AI_TERM_HOME)) {
+export async function ensureDaemon(store = new Store(process.env.BASTION_BRIDGE_HOME)) {
   try {
     await rpc('list', {}, 'CLI', store);
     return;
@@ -69,7 +69,7 @@ export async function ensureDaemon(store = new Store(process.env.AI_TERM_HOME)) 
     '后台启动失败，请检查本机私有 daemon.log；可能端口已被占用。',
   );
 }
-export async function stopDaemon(store = new Store(process.env.AI_TERM_HOME)) {
+export async function stopDaemon(store = new Store(process.env.BASTION_BRIDGE_HOME)) {
   const result = await rpc('shutdown', {}, 'CLI', store);
   for (let i = 0; i < 100; i++) {
     await new Promise((r) => setTimeout(r, 100));

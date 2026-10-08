@@ -87,7 +87,7 @@ test(
       command: process.execPath,
       args: ['--import', 'tsx', 'src/mcp.ts'],
       cwd: process.cwd(),
-      env: { ...(process.env as Record<string, string>), AI_TERM_HOME: f.root },
+      env: { ...(process.env as Record<string, string>), BASTION_BRIDGE_HOME: f.root },
       stderr: 'pipe',
     });
     await client.connect(transport);
@@ -174,7 +174,7 @@ test(
         process.execPath,
         ['--import', 'tsx', 'src/cli.ts', ...args],
         {
-          env: { ...process.env, AI_TERM_HOME: f.root },
+          env: { ...process.env, BASTION_BRIDGE_HOME: f.root },
         },
       );
       return JSON.parse(result.stdout);
