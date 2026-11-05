@@ -95,7 +95,7 @@ export const agentActions: Action[] = [
   'operation_read',
 ];
 export const descriptions: Partial<Record<Action, string>> = {
-  list: '列出配置资产、登录状态和占用者。不会读取终端内容。',
+  list: '列出配置资产名称、IP、登录状态和占用者。不会读取终端内容。',
   acquire:
     '按资产名称复用或建立连接并申请独占输入。等待密码/验证码时返回网页地址；已占用时返回 SESSION_BUSY。保存返回的 lease.token 用于交互调用。',
   renew: '续期占用；长时间思考或运行任务时在 5 分钟默认期限内续期。',

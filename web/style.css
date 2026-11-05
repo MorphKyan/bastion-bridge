@@ -185,6 +185,7 @@ h2 {
   accent-color: #17665d;
 }
 .asset-body {
+  flex: 1;
   display: block;
   text-align: left;
   background: none;
@@ -518,12 +519,21 @@ h1 {
   gap: 8px;
   margin-top: 24px;
 }
-.config-editor {
-  width: 100%;
-  height: 400px;
-  font-family: monospace;
-  font-size: 12px;
-  line-height: 1.6;
+.config-fields,
+.config-fields fieldset {
+  border: 1px solid #dfe6eb;
+  border-radius: 7px;
+  margin: 18px 0;
+  padding: 16px;
+  min-width: 0;
+}
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 0 16px;
+}
+.config-grid label {
+  min-width: 0;
 }
 .modal select {
   width: 100%;

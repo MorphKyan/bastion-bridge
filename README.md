@@ -14,7 +14,7 @@ node dist/cli.js start
 
 打开 **http://127.0.0.1:8765**。网页仅监听本机，无登录或访问令牌，并校验请求来源。`serve` 前台启动，`stop` 停止后台并保留 SSH；CLI / MCP 也会自动启动后台。启动失败时检查私有状态目录的 `daemon.log`。安装命令入口后可用 `bastion-bridge` 代替 `node dist/cli.js`。
 
-首次启动生成空配置。参照 [config.example.json](config.example.json) 在私有配置中填写堡垒机和资产，按 IP 选择目标；示例不会自动加载，也不要覆盖已有配置。
+首次启动生成空配置。可在左侧资产会话右侧的“配置”中，通过表单添加、编辑或删除堡垒机和服务器，修改 IP、账号及所属堡垒机等字段；保存后自动刷新列表。已连接服务器的连接参数可直接保存，供下次连接使用；删除或重命名已连接服务器前须先关闭对应连接，网页端口修改后须重启后台。也可参照 [config.example.json](config.example.json) 在私有配置中填写堡垒机和资产，按 IP 选择目标；示例不会自动加载，也不要覆盖已有配置。
 
 | 内容                     | 默认位置                                   |
 | ------------------------ | ------------------------------------------ |
@@ -72,6 +72,8 @@ node dist/cli.js renew example-asset --lease LEASE_TOKEN
 ```
 
 工具：`list`、`acquire`、`exec`、`renew`、`release`、`send`、`read`、`key`、`operation_wait`、`operation_read`、`subshell_exec`、`subshell_batch`。需要验证码时返回状态和网页地址。升级后重启后台及 MCP 客户端刷新接口；后台停止保留 SSH，未完成操作标为未知，旧令牌失效。网络断开或本机重启后需重新登录。
+
+`list` 返回每个配置资产的名称（`asset`）、IP（`ip`）、登录状态和占用信息；尚未连接的资产也包含 IP。
 
 ## 开发与验证
 

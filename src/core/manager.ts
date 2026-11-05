@@ -14,7 +14,7 @@ import type {
   ExecutionMode,
 } from '../shared.js';
 import { ToolError } from '../shared.js';
-import { Store } from './store.js';
+import { Store, configSchema } from './store.js';
 import { Tmux, type Terminal, type TerminalBridge, scanHost, saveTrustedKeys } from './tmux.js';
 import { CommandFrame, makeCommand, cleanOutput, shellQuote, OutputCleaner } from './framing.js';
 import { Redactor } from './redactor.js';
@@ -134,6 +134,7 @@ export class Manager extends EventEmitter {
     const { token: _token, ...lease } = s.lease ?? ({} as Lease);
     return {
       asset: s.asset,
+      ip: this.asset(s.asset).ip,
       status: s.status,
       message: s.message,
       accounts: s.accounts,
@@ -149,7 +150,7 @@ export class Manager extends EventEmitter {
       .assets.map((a) =>
         this.sessions.has(a.name)
           ? this.view(this.sessions.get(a.name)!)
-          : { asset: a.name, status: 'disconnected', accounts: [] },
+          : { asset: a.name, ip: a.ip, status: 'disconnected', accounts: [] },
       );
   }
   private asset(name: string): Asset {
@@ -1318,14 +1319,20 @@ export class Manager extends EventEmitter {
     return b;
   }
   saveConfig(value: unknown): Config {
-    const before = this.store.config();
+    const parsed = configSchema.safeParse(value);
+    if (!parsed.success)
+      throw new ToolError(
+        'INVALID_CONFIG',
+        '配置无效：' +
+          parsed.error.issues
+            .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+            .join('；'),
+      );
+    const config = parsed.data;
     for (const s of this.sessions.values())
-      if (s.binding) {
-        const next = (value as Config).assets?.find((a) => a.name === s.asset);
-        if (JSON.stringify(next) !== JSON.stringify(before.assets.find((a) => a.name === s.asset)))
-          throw new ToolError('CONFIG_IN_USE', '修改已连接资产前，请先关闭其连接。');
-      }
-    const c = this.store.saveConfig(value);
+      if (s.binding && !config.assets.some((a) => a.name === s.asset))
+        throw new ToolError('CONFIG_IN_USE', '删除或重命名已连接资产前，请先关闭对应连接。');
+    const c = this.store.saveConfig(config);
     this.change();
     return c;
   }

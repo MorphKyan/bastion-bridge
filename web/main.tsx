@@ -4,6 +4,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import './style.css';
+import { ConfigEditor } from './config-editor';
 import type {
   Config,
   SessionView,
@@ -138,12 +139,14 @@ function App() {
   const [notice, setNotice] = useState('');
   const [online, setOnline] = useState(true);
   const [modal, setModal] = useState<'credentials' | 'config' | 'import' | undefined>();
+  const [configIndex, setConfigIndex] = useState<number>();
+  const [configInitial, setConfigInitial] = useState<Config>();
+  const [closeRequest, setCloseRequest] = useState(0);
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
-  const [configText, setConfigText] = useState('');
   const [discovered, setDiscovered] = useState<Binding[]>([]);
   const [importIndex, setImportIndex] = useState(0);
   const [command, setCommand] = useState('');
@@ -165,8 +168,12 @@ function App() {
     return () => events.close();
   }, []);
   useEffect(() => {
-    if (state?.config.assets.length && !state.config.assets.some((a) => a.name === asset))
-      setAsset(state.config.assets[0].name);
+    if (state && !state.config.assets.some((a) => a.name === asset))
+      setAsset(state.config.assets[0]?.name ?? '');
+    if (state)
+      setSelected((names) =>
+        names.filter((name) => state.config.assets.some((a) => a.name === name)),
+      );
   }, [state, asset]);
   useEffect(() => {
     const b = state?.batches.find((b) => b.status === 'running' || b.status === 'paused');
@@ -241,6 +248,17 @@ function App() {
       setBusy(false);
     }
   }
+  function openConfig(index?: number, add = false) {
+    const draft = structuredClone(state!.config);
+    if (add) {
+      index = draft.assets.length;
+      draft.assets.push({ name: '', ip: '', bastion: draft.bastions[0]?.id ?? '' });
+    }
+    setConfigInitial(draft);
+    setConfigIndex(index);
+    setCloseRequest(0);
+    setModal('config');
+  }
   async function sessionAction(action: string, extra = {}) {
     return perform(() => call(action, { asset, ...extra }));
   }
@@ -278,14 +296,6 @@ function App() {
         <div className="header-actions">
           <span className={`dot ${online ? 'on' : ''}`} />
           {online ? '本机后台在线' : '正在重新连接'}
-          <button
-            onClick={() => {
-              setConfigText(JSON.stringify(state.config, null, 2));
-              setModal('config');
-            }}
-          >
-            配置
-          </button>
         </div>
       </header>
       {notice && (
@@ -299,6 +309,8 @@ function App() {
           <div className="section-top">
             <h2>资产会话</h2>
             <span>{state.config.assets.length}</span>
+            <button onClick={() => openConfig()}>配置</button>
+            <button onClick={() => openConfig(undefined, true)}>添加资产</button>
           </div>
           <div className="select-tools">
             <button
@@ -353,6 +365,12 @@ function App() {
                       {labels[s.status]}
                       {s.lease ? ` · ${s.lease.owner}` : ''}
                     </small>
+                  </button>
+                  <button
+                    aria-label={`配置 ${a.name}`}
+                    onClick={() => openConfig(state.config.assets.indexOf(a))}
+                  >
+                    配置
                   </button>
                 </div>
               );
@@ -698,8 +716,23 @@ function App() {
         </main>
       </div>
       {modal && (
-        <div className="modal-backdrop">
-          <div className={`modal ${modal === 'config' ? 'wide' : ''}`}>
+        <div
+          className="modal-backdrop"
+          onClick={(event) => {
+            if (event.target !== event.currentTarget || busy) return;
+            if (modal === 'config') setCloseRequest((n) => n + 1);
+            else {
+              setModal(undefined);
+              setPassword('');
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="配置与连接"
+            className={`modal ${modal === 'config' ? 'wide' : ''}`}
+          >
             <div className="section-top">
               <h2>
                 {modal === 'credentials'
@@ -708,14 +741,16 @@ function App() {
                     ? '资产与连接配置'
                     : '导入已有 tmux 连接'}
               </h2>
-              <button
-                onClick={() => {
-                  setModal(undefined);
-                  setPassword('');
-                }}
-              >
-                关闭
-              </button>
+              {modal !== 'config' && (
+                <button
+                  onClick={() => {
+                    setModal(undefined);
+                    setPassword('');
+                  }}
+                >
+                  关闭
+                </button>
+              )}
             </div>
             {modal === 'credentials' && bastion && (
               <form
@@ -782,31 +817,23 @@ function App() {
               </form>
             )}
             {modal === 'config' && (
-              <>
-                <p>
-                  资产名称用于命名会话。修改已连接资产前请先关闭连接；缺少用户名时，可在登录账号菜单中选择并保存。
-                </p>
-                <textarea
-                  aria-label="配置 JSON"
-                  className="config-editor"
-                  value={configText}
-                  onChange={(e) => setConfigText(e.target.value)}
-                />
-                <div className="modal-actions">
-                  <button
-                    className="primary"
-                    disabled={busy}
-                    onClick={() =>
-                      perform(async () => {
-                        await call('config_save', { config: JSON.parse(configText) });
-                        setModal(undefined);
-                      })
-                    }
-                  >
-                    保存配置
-                  </button>
-                </div>
-              </>
+              <ConfigEditor
+                initial={configInitial!}
+                assetIndex={configIndex}
+                closeRequest={closeRequest}
+                close={() => setModal(undefined)}
+                busy={busy}
+                save={async (config) => {
+                  setBusy(true);
+                  try {
+                    await call('config_save', { config });
+                    setState(await (await fetch('/api/state')).json());
+                    setModal(undefined);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              />
             )}
             {modal === 'import' && (
               <>

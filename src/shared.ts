@@ -39,6 +39,7 @@ export interface Lease {
 }
 export interface SessionView {
   asset: string;
+  ip: string;
   status: SessionStatus;
   message?: string;
   accounts: string[];

@@ -5,6 +5,21 @@ import type { OperationResult } from '../src/shared.js';
 import { Manager } from '../src/core/manager.js';
 import { localFixture, eventually } from './helpers.js';
 
+test('asset list includes configured IPs for connected and disconnected assets', async (t) => {
+  const f = await localFixture();
+  t.after(f.cleanup);
+  const config = f.store.config();
+  config.assets.push({ name: 'offline-test', ip: '192.0.2.1', bastion: 'qizhi' });
+  f.store.saveConfig(config);
+  assert.deepEqual(
+    f.manager.list().map(({ asset, ip, status }) => ({ asset, ip, status })),
+    [
+      { asset: 'local-test', ip: '127.0.0.1', status: 'ready' },
+      { asset: 'offline-test', ip: '192.0.2.1', status: 'disconnected' },
+    ],
+  );
+});
+
 test(
   'request deduplication survives caller changes without sharing the live lease',
   { timeout: 10000 },
@@ -259,3 +274,30 @@ test(
     assert.ok(!done.output.includes('forbidden-after-expiry'));
   },
 );
+
+test('config editing validates before saving and protects connected assets and bastions', async (t) => {
+  const f = await localFixture();
+  t.after(f.cleanup);
+  const original = f.store.config();
+  const invalid = structuredClone(original);
+  invalid.assets[0].ip = 'invalid';
+  assert.throws(() => f.manager.saveConfig(invalid), { code: 'INVALID_CONFIG' });
+  for (const change of ['rename', 'delete'] as const) {
+    const next = structuredClone(original);
+    if (change === 'rename') next.assets[0].name = 'renamed';
+    if (change === 'delete') next.assets = [];
+    assert.throws(() => f.manager.saveConfig(next), { code: 'CONFIG_IN_USE' });
+    assert.deepEqual(f.store.config(), original);
+  }
+  f.store.savePassword('qizhi', 'config-test-password');
+  const next = structuredClone(original);
+  next.assets[0].ip = '192.0.2.2';
+  next.bastions[0].host = 'other.example';
+  next.assets.push({ name: 'new-server', ip: '192.0.2.2', bastion: 'qizhi' });
+  assert.deepEqual(f.manager.saveConfig(next), next);
+  assert.equal(f.store.password('qizhi'), 'config-test-password');
+  await f.manager.close('local-test');
+  next.assets[0].ip = '192.0.2.3';
+  next.bastions[0].host = 'other.example';
+  assert.deepEqual(f.manager.saveConfig(next), next);
+});
