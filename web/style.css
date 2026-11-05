@@ -7,7 +7,7 @@
     'Microsoft YaHei',
     sans-serif;
   color: #263746;
-  background: #f3f6f8;
+  background: #f2f5f7;
   font-synthesis: none;
   font-size: 14px;
 }
@@ -66,10 +66,10 @@ textarea:focus {
   outline-offset: 1px;
 }
 header {
-  height: 80px;
+  height: 52px;
   background: white;
   border-bottom: 1px solid #dfe6eb;
-  padding: 0 32px;
+  padding: 0 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -77,29 +77,23 @@ header {
 .brand {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
 }
 .brand-icon {
   font-family: monospace;
-  font-size: 22px;
+  font-size: 18px;
   background: #17665d;
   color: white;
-  border-radius: 10px;
-  width: 44px;
-  height: 44px;
+  border-radius: 7px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
 }
 .brand strong {
   display: block;
-  font-size: 20px;
+  font-size: 15px;
   letter-spacing: -0.5px;
-}
-.brand span:not(.brand-icon) {
-  display: block;
-  color: #768795;
-  font-size: 12px;
-  margin-top: 3px;
 }
 .header-actions {
   display: flex;
@@ -130,18 +124,17 @@ header {
 }
 .workspace {
   display: grid;
-  grid-template-columns: 285px minmax(0, 1fr);
-  max-width: 1600px;
-  margin: auto;
-  min-height: calc(100vh - 80px);
+  grid-template-columns: 300px minmax(0, 1fr);
+  width: 100%;
+  min-height: calc(100dvh - 52px);
 }
 aside {
-  padding: 26px 16px;
+  padding: 20px 14px;
   border-right: 1px solid #dfe6eb;
   background: #fafcfd;
 }
 main {
-  padding: 30px 32px;
+  padding: 20px;
   min-width: 0;
 }
 .section-top {
@@ -161,7 +154,7 @@ h2 {
 .select-tools {
   display: flex;
   gap: 7px;
-  margin: 18px 0;
+  margin: 16px 0;
 }
 .select-tools button {
   font-size: 11px;
@@ -172,7 +165,8 @@ h2 {
   gap: 8px;
   padding: 12px 10px;
   margin: 6px 0;
-  border: 1px solid transparent;
+  border: 1px solid #e4eaee;
+  background: white;
   border-radius: 9px;
   align-items: flex-start;
 }
@@ -219,19 +213,11 @@ h2 {
 .status-dot {
   margin-right: 6px;
 }
-.aside-note {
-  font-size: 11px;
-  color: #8b9aa5;
-  line-height: 1.8;
-  border-top: 1px solid #e2e8ed;
-  margin-top: 28px;
-  padding: 18px 10px;
-}
 .session-heading {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 22px;
+  margin-bottom: 14px;
 }
 .eyebrow {
   font-size: 11px;
@@ -239,7 +225,7 @@ h2 {
   letter-spacing: 1px;
 }
 h1 {
-  font-size: 25px;
+  font-size: 23px;
   font-weight: 600;
   margin: 8px 0;
   letter-spacing: -0.7px;
@@ -273,7 +259,7 @@ h1 {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  margin: 20px 0 12px;
+  margin: 16px 0 10px;
   flex-wrap: wrap;
 }
 .toolbar > div,
@@ -289,7 +275,8 @@ h1 {
   border-radius: 10px;
   overflow: hidden;
   background: #101821;
-  box-shadow: 0 8px 24px #172c3812;
+  border: 1px solid #263644;
+  box-shadow: 0 4px 16px #172c3810;
 }
 .terminal-title {
   background: #1a2632;
@@ -304,8 +291,8 @@ h1 {
   letter-spacing: 4px;
 }
 .terminal-container {
-  height: 390px;
-  padding: 14px 12px 8px;
+  height: clamp(340px, 55dvh, 800px);
+  padding: 6px;
 }
 .terminal-footer {
   display: flex;
@@ -372,7 +359,7 @@ h1 {
   background: white;
   border: 1px solid #dfe6eb;
   border-radius: 10px;
-  padding: 20px;
+  padding: 16px;
 }
 .command-panel > textarea {
   font-family: monospace;
@@ -546,7 +533,7 @@ h1 {
 }
 @media (max-width: 1050px) {
   .workspace {
-    grid-template-columns: 235px minmax(0, 1fr);
+    grid-template-columns: 280px minmax(0, 1fr);
   }
   main {
     padding: 24px 20px;
@@ -562,7 +549,7 @@ h1 {
 @media (max-width: 700px) {
   header {
     padding: 0 18px;
-    height: 70px;
+    height: 52px;
   }
   .workspace {
     display: block;
@@ -578,9 +565,6 @@ h1 {
   }
   .asset {
     min-width: 210px;
-  }
-  .aside-note {
-    display: none;
   }
   main {
     padding: 20px 14px;
@@ -598,9 +582,6 @@ h1 {
     align-items: flex-start;
     flex-direction: column;
   }
-  .header-actions {
-    font-size: 0;
-  }
   .section-top > span {
     font-size: 10px;
   }
@@ -610,5 +591,55 @@ h1 {
   }
   .result > div {
     flex-direction: column;
+  }
+}
+
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.asset-count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: #e9eff2;
+  color: #6c818e;
+  font-size: 11px;
+  font-weight: 500;
+}
+.asset > button:last-child {
+  padding: 4px 6px;
+  font-size: 11px;
+  background: transparent;
+  border-color: transparent;
+  color: #6c818e;
+}
+.asset > button:last-child:hover {
+  background: #e4eeeb;
+  color: #17665d;
+}
+button:focus-visible,
+select:focus-visible {
+  outline: 2px solid #88bcb1;
+  outline-offset: 2px;
+}
+.toolbar > div,
+.terminal-footer > div {
+  flex-wrap: wrap;
+}
+@media (max-width: 400px) {
+  header {
+    padding: 0 10px;
+  }
+  .brand {
+    gap: 6px;
+  }
+  .brand strong {
+    font-size: 13px;
+  }
+  .header-actions {
+    gap: 8px;
   }
 }

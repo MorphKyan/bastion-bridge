@@ -49,9 +49,11 @@ export function ConfigEditor({
         }
       }}
     >
-      <p>
-        连接参数修改后在下次连接生效；删除或重命名已连接资产前需关闭连接。密码通过“用户名与密码”单独设置。
-      </p>
+      {assetIndex !== undefined && (
+        <p>
+          连接参数修改后在下次连接生效；删除或重命名已连接资产前需关闭连接。密码通过“用户名与密码”单独设置。
+        </p>
+      )}
       {error && <p role="alert">{error}</p>}
       <fieldset hidden={assetIndex !== undefined} disabled={busy} className="config-fields">
         <legend>堡垒机</legend>
@@ -123,88 +125,77 @@ export function ConfigEditor({
           添加堡垒机
         </button>
       </fieldset>
-      <fieldset disabled={busy} className="config-fields">
-        <legend>服务器</legend>
-        {config.assets.map((asset, index) => (
-          <fieldset
-            key={index}
-            hidden={removed || (assetIndex !== undefined && assetIndex !== index)}
-          >
-            <legend>服务器 {index + 1}</legend>
-            <div className="config-grid">
-              {(['name', 'ip', 'username', 'promptPattern'] as const).map((field) => (
-                <label key={field}>
-                  {
+      {assetIndex !== undefined && (
+        <fieldset disabled={busy} className="config-fields">
+          <legend>服务器</legend>
+          {config.assets.map((asset, index) => (
+            <fieldset
+              key={index}
+              hidden={removed || (assetIndex !== undefined && assetIndex !== index)}
+            >
+              <legend>服务器 {index + 1}</legend>
+              <div className="config-grid">
+                {(['name', 'ip', 'username', 'promptPattern'] as const).map((field) => (
+                  <label key={field}>
                     {
-                      name: '服务器名称',
-                      ip: 'IP 地址',
-                      username: '服务器用户名（可选）',
-                      promptPattern: 'Shell 提示符正则（可选）',
-                    }[field]
-                  }
-                  <input
-                    required={field === 'name' || field === 'ip'}
-                    value={asset[field] ?? ''}
+                      {
+                        name: '服务器名称',
+                        ip: 'IP 地址',
+                        username: '服务器用户名（可选）',
+                        promptPattern: 'Shell 提示符正则（可选）',
+                      }[field]
+                    }
+                    <input
+                      required={field === 'name' || field === 'ip'}
+                      value={asset[field] ?? ''}
+                      onChange={(event) =>
+                        setConfig({
+                          ...config,
+                          assets: config.assets.map((a, i) =>
+                            i === index ? { ...a, [field]: event.target.value || undefined } : a,
+                          ),
+                        })
+                      }
+                    />
+                  </label>
+                ))}
+                <label>
+                  所属堡垒机
+                  <select
+                    required
+                    value={asset.bastion}
                     onChange={(event) =>
                       setConfig({
                         ...config,
                         assets: config.assets.map((a, i) =>
-                          i === index ? { ...a, [field]: event.target.value || undefined } : a,
+                          i === index ? { ...a, bastion: event.target.value } : a,
                         ),
                       })
                     }
-                  />
+                  >
+                    <option value="">请选择堡垒机</option>
+                    {config.bastions.map((b, i) => (
+                      <option key={i} value={b.id}>
+                        {b.name || b.id}
+                      </option>
+                    ))}
+                  </select>
                 </label>
-              ))}
-              <label>
-                所属堡垒机
-                <select
-                  required
-                  value={asset.bastion}
-                  onChange={(event) =>
-                    setConfig({
-                      ...config,
-                      assets: config.assets.map((a, i) =>
-                        i === index ? { ...a, bastion: event.target.value } : a,
-                      ),
-                    })
-                  }
-                >
-                  <option value="">请选择堡垒机</option>
-                  {config.bastions.map((b, i) => (
-                    <option key={i} value={b.id}>
-                      {b.name || b.id}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <button
-              type="button"
-              className="danger"
-              onClick={() => {
-                setConfig({ ...config, assets: config.assets.filter((_, i) => i !== index) });
-                if (assetIndex !== undefined) setRemoved(true);
-              }}
-            >
-              删除服务器 {index + 1}
-            </button>
-          </fieldset>
-        ))}
-        <button
-          type="button"
-          hidden={assetIndex !== undefined}
-          disabled={!config.bastions.length}
-          onClick={() =>
-            setConfig({
-              ...config,
-              assets: [...config.assets, { name: '', ip: '', bastion: config.bastions[0].id }],
-            })
-          }
-        >
-          添加服务器
-        </button>
-      </fieldset>
+              </div>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => {
+                  setConfig({ ...config, assets: config.assets.filter((_, i) => i !== index) });
+                  if (assetIndex !== undefined) setRemoved(true);
+                }}
+              >
+                删除服务器 {index + 1}
+              </button>
+            </fieldset>
+          ))}
+        </fieldset>
+      )}
       <fieldset hidden={assetIndex !== undefined} disabled={busy} className="config-fields">
         <legend>后台设置</legend>
         <div className="config-grid">

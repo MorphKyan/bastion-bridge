@@ -112,7 +112,7 @@ test('configuration forms add, edit, validate and remove servers without JSON', 
   page.on('pageerror', (error) => errors.push(error.message));
   const original = (await (await request.get('/api/state')).json()).config;
   const open = async () => {
-    await page.getByRole('button', { name: '配置', exact: true }).click();
+    await page.getByRole('button', { name: '系统配置', exact: true }).click();
   };
   const modal = page.locator('.modal');
   const save = modal.getByRole('button', { name: '保存配置' });
@@ -125,7 +125,11 @@ test('configuration forms add, edit, validate and remove servers without JSON', 
     await bastion.getByLabel('显示名称').fill('Second bastion');
     await bastion.getByLabel('主机地址').fill('192.0.2.10');
     await bastion.getByLabel('登录用户名').fill('tester');
-    await page.getByRole('button', { name: '添加服务器', exact: true }).click();
+    await expect(modal.getByRole('group', { name: '服务器', exact: true })).toHaveCount(0);
+    await expect(modal.getByLabel('占用时长（秒）')).toBeVisible();
+    await save.click();
+    await expect(modal).toBeHidden();
+    await page.getByRole('button', { name: '添加资产', exact: true }).click();
     const server = modal.getByRole('group', { name: '服务器 2', exact: true });
     await server.getByLabel('服务器名称').fill('new-server');
     await server.getByLabel('IP 地址').fill('192.0.2.20');
@@ -134,7 +138,7 @@ test('configuration forms add, edit, validate and remove servers without JSON', 
     await expect(modal).toBeHidden();
     await expect(page.locator('.assets')).toContainText('new-server');
     await page.reload();
-    await open();
+    await page.getByRole('button', { name: '配置 new-server', exact: true }).click();
     await expect(server.getByLabel('IP 地址')).toHaveValue('192.0.2.20');
     await server.getByLabel('服务器名称').fill('demo');
     await save.click();
@@ -148,19 +152,25 @@ test('configuration forms add, edit, validate and remove servers without JSON', 
     await save.click();
     await expect(modal).toBeHidden();
     await expect(page.locator('.assets')).toContainText('edited-server');
-    await open();
+    await page.getByRole('button', { name: '配置 demo', exact: true }).click();
     await modal
       .getByRole('group', { name: '服务器 1', exact: true })
       .getByLabel('IP 地址')
       .fill('192.0.2.99');
     await save.click();
     await expect(modal).toBeHidden();
-    await open();
+    await page.getByRole('button', { name: '配置 demo', exact: true }).click();
     await modal
       .getByRole('group', { name: '服务器 1', exact: true })
       .getByLabel('IP 地址')
       .fill('127.0.0.1');
+    await save.click();
+    await expect(modal).toBeHidden();
+    await page.getByRole('button', { name: '配置 edited-server', exact: true }).click();
     await page.getByRole('button', { name: '删除服务器 2', exact: true }).click();
+    await save.click();
+    await expect(modal).toBeHidden();
+    await open();
     await page.getByRole('button', { name: '删除堡垒机 2', exact: true }).click();
     await save.click();
     await expect(modal).toBeHidden();
@@ -204,4 +214,23 @@ test('asset configuration opens beside the asset and prompts before discarding c
   await expect(modal.getByRole('button', { name: /删除服务器/ })).toBeVisible();
   await page.locator('.modal-backdrop').click({ position: { x: 2, y: 2 } });
   await expect(modal).toBeHidden();
+});
+
+test('compact header and workspace fill wide and narrow viewports', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('header').getByRole('button', { name: '系统配置' })).toBeVisible();
+  await expect(
+    page.locator('aside').getByRole('button', { name: '配置', exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByText('连接保留在 tmux 中。', { exact: false })).toHaveCount(0);
+  for (const width of [1920, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const workspace = page.locator('.workspace');
+    await expect(workspace).toBeVisible();
+    const box = await workspace.boundingBox();
+    expect(box!.x).toBe(0);
+    expect(box!.width).toBe(width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    expect((await page.locator('header').boundingBox())!.height).toBe(52);
+  }
 });

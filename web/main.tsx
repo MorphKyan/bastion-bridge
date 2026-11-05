@@ -288,14 +288,14 @@ function App() {
       <header>
         <div className="brand">
           <span className="brand-icon">›_</span>
-          <div>
-            <strong>bastion bridge</strong>
-            <span>堡垒机会话工作台</span>
-          </div>
+          <strong>bastion bridge</strong>
         </div>
         <div className="header-actions">
-          <span className={`dot ${online ? 'on' : ''}`} />
-          {online ? '本机后台在线' : '正在重新连接'}
+          <span className="connection-status" role="status">
+            <span className={`dot ${online ? 'on' : ''}`} />
+            {online ? '在线' : '重连中'}
+          </span>
+          <button onClick={() => openConfig()}>系统配置</button>
         </div>
       </header>
       {notice && (
@@ -307,9 +307,9 @@ function App() {
       <div className="workspace">
         <aside>
           <div className="section-top">
-            <h2>资产会话</h2>
-            <span>{state.config.assets.length}</span>
-            <button onClick={() => openConfig()}>配置</button>
+            <h2>
+              资产会话 <span className="asset-count">{state.config.assets.length}</span>
+            </h2>
             <button onClick={() => openConfig(undefined, true)}>添加资产</button>
           </div>
           <div className="select-tools">
@@ -375,9 +375,6 @@ function App() {
                 </div>
               );
             })}
-          </div>
-          <div className="aside-note">
-            连接保留在 tmux 中。关闭网页后连接继续保留，占用按超时规则回收。
           </div>
         </aside>
         <main>
@@ -738,7 +735,9 @@ function App() {
                 {modal === 'credentials'
                   ? '堡垒机用户名与密码'
                   : modal === 'config'
-                    ? '资产与连接配置'
+                    ? configIndex === undefined
+                      ? '系统配置'
+                      : '资产配置'
                     : '导入已有 tmux 连接'}
               </h2>
               {modal !== 'config' && (
