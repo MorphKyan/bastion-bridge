@@ -1,3 +1,6 @@
+export const identifierPattern = /^[A-Za-z0-9_-]{1,64}$/;
+export const accountNamePattern = /^[A-Za-z0-9_.@-]+$/;
+
 export interface Bastion {
   id: string;
   name: string;
@@ -47,7 +50,6 @@ export interface SessionView {
   connectedUsername?: string;
   lease?: Omit<Lease, 'token'>;
   activeOperation?: string;
-  attached?: boolean;
   fingerprint?: string;
 }
 export interface Binding {

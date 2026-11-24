@@ -62,7 +62,7 @@ export class Tmux implements Terminal {
       return false;
     }
   }
-  async capture(b: Binding) {
+  capture(b: Binding) {
     return this.run(b.socket, ['capture-pane', '-p', '-t', b.pane, '-S', '-1000']);
   }
   async send(b: Binding, text: string, { submit, bracketedPaste }: SendOptions = {}) {
@@ -108,10 +108,8 @@ export class Tmux implements Terminal {
       Left: 'Left',
       Right: 'Right',
       Backspace: 'BSpace',
-      'C-c': 'C-c',
-      'C-d': 'C-d',
     };
-    if (!keys[key]) throw new ToolError('INVALID_KEY', 'Unsupported control key.');
+    if (!Object.hasOwn(keys, key)) throw new ToolError('INVALID_KEY', 'Unsupported control key.');
     await this.run(b.socket, ['send-keys', '-t', b.pane, keys[key]]);
   }
   async resize(b: Binding, cols: number, rows: number) {
@@ -180,13 +178,13 @@ class ControlBridge extends EventEmitter implements TerminalBridge {
           );
       }
       if (this.pending.length > 16 * 1024 * 1024) {
-        this.emit('lost', 'Terminal control stream exceeded its buffer.');
+        this.emit('lost');
         this.close();
       }
     });
-    this.child.on('error', () => this.emit('lost', 'Terminal bridge could not start.'));
+    this.child.on('error', () => this.emit('lost'));
     this.child.on('exit', () => {
-      if (!this.closing) this.emit('lost', 'Terminal bridge disconnected.');
+      if (!this.closing) this.emit('lost');
     });
   }
   close() {

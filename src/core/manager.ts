@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { randomUUID, createHash } from 'node:crypto';
 import fs from 'node:fs';
+import { setTimeout as delay } from 'node:timers/promises';
 import type {
   Asset,
   Config,
@@ -13,14 +14,18 @@ import type {
   Batch,
   ExecutionMode,
 } from '../shared.js';
-import { ToolError } from '../shared.js';
+import { ToolError, accountNamePattern, identifierPattern } from '../shared.js';
 import { Store, configSchema } from './store.js';
 import { Tmux, type Terminal, type TerminalBridge, scanHost, saveTrustedKeys } from './tmux.js';
 import { CommandFrame, makeCommand, cleanOutput, shellQuote, OutputCleaner } from './framing.js';
-import { Redactor } from './redactor.js';
+import { Redactor, redact } from './redactor.js';
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const MAX_OUTPUT = 64 * 1024 * 1024;
+const TMUX_SOCKET = 'bastion-bridge';
+export function terminalVisible(status?: SessionStatus) {
+  return status === 'ready' || status === 'recovering' || status === 'needs_attention';
+}
+
 type ExecuteArgs = {
   asset: string;
   command: string;
@@ -59,7 +64,7 @@ type Session = {
   loginTimer?: NodeJS.Timeout;
   inspectRunning?: boolean;
   redactor: Redactor;
-  queuedAction?: string;
+  queuedAction?: 'asset' | 'username';
   submittedPrompt?: string;
 };
 export class Manager extends EventEmitter {
@@ -82,7 +87,6 @@ export class Manager extends EventEmitter {
     this.runningPort = store.config().port;
     for (const c of Object.values(store.credentials())) this.knownSecrets.add(c.password);
     for (const o of store.operations()) {
-      o.executionMode ??= 'subshell';
       if (o.status === 'running') {
         o.status = 'unknown';
         o.message = '后台重启，执行结果需要人工确认；不会自动重新执行。';
@@ -121,20 +125,16 @@ export class Manager extends EventEmitter {
     ];
   }
   private safe(s: Session, text: string) {
-    return this.store.redact(text, [
-      ...this.knownSecrets,
-      ...this.temporaryPasswords.values(),
-      ...s.extraSecrets,
-    ]);
+    return redact(text, this.secrets(s));
   }
   private change(s?: Session) {
     this.emit('change', s ? this.view(s) : undefined);
   }
-  private view(s: Session): SessionView {
+  private view(s: Session, ip = this.asset(s.asset).ip): SessionView {
     const { token: _token, ...lease } = s.lease ?? ({} as Lease);
     return {
       asset: s.asset,
-      ip: this.asset(s.asset).ip,
+      ip,
       status: s.status,
       message: s.message,
       accounts: s.accounts,
@@ -144,14 +144,13 @@ export class Manager extends EventEmitter {
       fingerprint: s.fingerprint,
     };
   }
-  list(): SessionView[] {
-    return this.store
-      .config()
-      .assets.map((a) =>
-        this.sessions.has(a.name)
-          ? this.view(this.sessions.get(a.name)!)
-          : { asset: a.name, ip: a.ip, status: 'disconnected', accounts: [] },
-      );
+  list(assets = this.store.config().assets): SessionView[] {
+    return assets.map(({ name, ip }) => {
+      const session = this.sessions.get(name);
+      return session
+        ? this.view(session, ip)
+        : { asset: name, ip, status: 'disconnected', accounts: [] };
+    });
   }
   private asset(name: string): Asset {
     const a = this.store.config().assets.find((a) => a.name === name);
@@ -193,13 +192,13 @@ export class Manager extends EventEmitter {
     bridge.on('data', (text: string) => {
       if (this.disposed || this.sessions.get(s.asset) !== s || s.bridge !== bridge) return;
       s.activeJob?.frame.push(text);
-      if (s.status === 'ready' || s.status === 'recovering' || s.status === 'needs_attention') {
+      if (terminalVisible(s.status)) {
         const safe = s.redactor.push(text);
         if (safe) {
           s.output += safe;
           s.cursor += safe.length;
           if (s.output.length > 256 * 1024) s.output = s.output.slice(-256 * 1024);
-          this.emit('output', s.asset, safe, s.cursor);
+          this.emit('output', s.asset, safe);
         }
       }
       this.scheduleInspect(s);
@@ -288,18 +287,8 @@ export class Manager extends EventEmitter {
     this.saveBindings();
   }
   private promptUser(screen: string) {
-    return (
-      screen
-        .trimEnd()
-        .split('\n')
-        .at(-1)
-        ?.match(/^\[([^@\]]+)@/u)?.[1] ??
-      screen
-        .trimEnd()
-        .split('\n')
-        .at(-1)
-        ?.match(/^([^@\s]+)@/)?.[1]
-    );
+    const line = screen.trimEnd().split('\n').at(-1)!;
+    return line.match(/^\[([^@\]]+)@/u)?.[1] ?? line.match(/^([^@\s]+)@/)?.[1];
   }
   private isIdle(s: Session, screen: string): boolean {
     const a = this.asset(s.asset);
@@ -315,7 +304,6 @@ export class Manager extends EventEmitter {
       let s = this.sessions.get(name);
       if (s?.binding && (await this.terminal.exists(s.binding))) {
         if (s.status === 'target_closed') {
-          s.queuedAction = 'resume';
           await this.terminal.key(s.binding, 'Enter');
           s.status = 'connecting';
           this.armLoginTimeout(s);
@@ -366,11 +354,10 @@ export class Manager extends EventEmitter {
           `${bastion.username}@${bastion.host}`,
         ];
         s.binding = await this.terminal.create(
-          'bastion-bridge',
+          TMUX_SOCKET,
           name,
           'exec ' + args.map(shellQuote).join(' '),
         );
-        s.binding.asset = name;
         this.saveBindings();
         await this.connectBridge(s);
         this.armLoginTimeout(s);
@@ -407,15 +394,15 @@ export class Manager extends EventEmitter {
       )
         return;
       const tail = screen.trimEnd();
-      if (s.status === 'ready') {
-        if (/会话已结束。按下 ENTER/.test(tail.split('\n').at(-1) ?? '')) {
-          if (job) this.endAbnormally(s, 'unknown', '目标连接已结束，未收到命令结束帧。');
-          s.lease = undefined;
-          this.setStatus(s, 'target_closed', '目标连接已结束，堡垒机认证连接仍可复用。');
-        }
+      if (/会话已结束。按下 ENTER/.test(tail.split('\n').at(-1)!)) {
+        if (job) this.endAbnormally(s, 'unknown', '目标连接已结束，未收到命令结束帧。');
+        s.lease = undefined;
+        this.setStatus(s, 'target_closed', '目标连接已结束，堡垒机认证连接仍可复用。');
         return;
       }
-      if (job) return;
+      if (s.status === 'ready' || job) return;
+      const a = this.asset(s.asset);
+      const promptUser = this.promptUser(tail);
       if (/2nd Password:\s*$/i.test(tail)) {
         if (s.codeSubmitted) {
           if (tail === s.submittedPrompt) return;
@@ -428,10 +415,7 @@ export class Manager extends EventEmitter {
           this.setStatus(s, 'needs_password', '密码未通过，请修改密码后重试。');
           return;
         }
-        const bastion = this.store
-          .config()
-          .bastions.find((b) => b.id === this.asset(s.asset).bastion)!;
-        const password = this.temporaryPasswords.get(bastion.id) ?? this.store.password(bastion.id);
+        const password = this.temporaryPasswords.get(a.bastion) ?? this.store.password(a.bastion);
         if (!password) {
           this.setStatus(s, 'needs_password', '请在网页填写堡垒机密码。');
           return;
@@ -450,12 +434,12 @@ export class Manager extends EventEmitter {
         s.queuedAction = 'asset';
         s.submittedPrompt = tail;
         s.status = 'connecting';
-        await this.terminal.send(s.binding, this.asset(s.asset).ip, { submit: true });
+        await this.terminal.send(s.binding, a.ip, { submit: true });
         this.change(s);
       } else if (/请选择登录账号[：:]\s*$/.test(tail)) {
         const menu = screen.slice(Math.max(0, screen.lastIndexOf('登录账号列表')));
         s.accounts = [...menu.matchAll(/^\s*\d+:\s*\*?\s*(\S+)\s*$/gm)].map((m) => m[1]);
-        const username = this.asset(s.asset).username;
+        const username = a.username;
         if (!username || !s.accounts.includes(username)) {
           this.setStatus(
             s,
@@ -476,23 +460,15 @@ export class Manager extends EventEmitter {
         s.status = 'connecting';
         await this.terminal.send(s.binding, username, { submit: true });
         this.change(s);
-      } else if (/会话已结束。按下 ENTER/.test(tail.split('\n').at(-1) ?? '')) {
-        s.lease = undefined;
-        this.setStatus(s, 'target_closed', '目标连接已结束，堡垒机认证连接仍可复用。');
-      } else if (
-        this.promptUser(screen) &&
-        /[#$]\s*$/.test(tail.split('\n').at(-1) ?? '') &&
-        this.asset(s.asset).username &&
-        this.promptUser(screen) !== this.asset(s.asset).username
-      ) {
+      } else if (promptUser && /[#$]$/.test(tail) && a.username && promptUser !== a.username) {
         this.setStatus(s, 'needs_attention', '实际登录用户名与资产配置不符，请人工检查。');
       } else if (this.isIdle(s, screen)) {
         const lastConnection = [...screen.matchAll(/Connecting to ([^@\s]+)@([\d.]+)/g)].at(-1);
-        if (lastConnection && lastConnection[2] !== this.asset(s.asset).ip) {
+        if (lastConnection && lastConnection[2] !== a.ip) {
           this.setStatus(s, 'needs_attention', '实际连接 IP 与配置不符。');
           return;
         }
-        s.connectedUsername = this.promptUser(screen);
+        s.connectedUsername = promptUser;
         s.queuedAction = undefined;
         this.setStatus(s, 'ready');
       } else if (
@@ -553,7 +529,7 @@ export class Manager extends EventEmitter {
     return this.ensure(name);
   }
   async importSession(name: string, socket: string, tmuxName: string) {
-    if (!/^[A-Za-z0-9_-]{1,64}$/.test(socket) || !/^[A-Za-z0-9_-]{1,64}$/.test(tmuxName))
+    if (!identifierPattern.test(socket) || !identifierPattern.test(tmuxName))
       throw new ToolError('INVALID_SESSION', 'Invalid tmux session or socket name.');
     return this.locked('$registry', () =>
       this.locked(name, async () => {
@@ -652,7 +628,7 @@ export class Manager extends EventEmitter {
   async takeover(name: string, owner: string) {
     return this.locked(name, async () => {
       const s = this.session(name);
-      if (!s.binding || !['ready', 'needs_attention', 'recovering'].includes(s.status))
+      if (!s.binding || !terminalVisible(s.status))
         throw new ToolError('NOT_READY', '该会话尚未进入可操作终端。');
       if (!s.bridge) await this.connectBridge(s);
       return { lease: this.grant(s, owner, 'human'), session: this.view(s) };
@@ -678,10 +654,10 @@ export class Manager extends EventEmitter {
     return this.locked(name, async () => {
       const s = this.session(name);
       const lease = this.checkLease(s, token);
-      if (s.activeJob && lease.kind !== 'human' && !['Ctrl-C', 'C-c'].includes(key))
+      if (s.activeJob && lease.kind !== 'human' && key !== 'Ctrl-C')
         throw new ToolError('OPERATION_RUNNING', '当前命令运行中，只允许中断。');
       await this.terminal.key(s.binding!, key);
-      if (key === 'Ctrl-C' || key === 'C-c') await this.recover(s, false);
+      if (key === 'Ctrl-C') await this.recover(s);
       return { accepted: true };
     });
   }
@@ -699,8 +675,7 @@ export class Manager extends EventEmitter {
   }
   async snapshot(name: string): Promise<string> {
     const s = this.session(name);
-    if (!s.binding || !['ready', 'recovering', 'needs_attention'].includes(s.status))
-      return s.message ?? '等待连接';
+    if (!s.binding || !terminalVisible(s.status)) return s.message ?? '等待连接';
     return this.safe(s, await this.terminal.capture(s.binding));
   }
   read(name: string, token: string, cursor?: number) {
@@ -728,20 +703,21 @@ export class Manager extends EventEmitter {
     });
   }
   private append(job: Job, text: string) {
-    if (!text) return;
-    const buffer = Buffer.from(text);
-    const remaining = MAX_OUTPUT - job.bytes;
-    if (remaining > 0) {
-      fs.appendFileSync(this.store.outputPath(job.operation.id), buffer.subarray(0, remaining), {
+    if (text) job.bytes = this.appendOutput(job.operation, Buffer.from(text), job.bytes);
+  }
+  private appendOutput(operation: Operation, buffer: Buffer, bytes: number) {
+    const size = Math.min(MAX_OUTPUT - bytes, buffer.length);
+    if (size) {
+      fs.appendFileSync(this.store.outputPath(operation.id), buffer.subarray(0, size), {
         mode: 0o600,
       });
-      job.bytes += Math.min(remaining, buffer.length);
     }
-    if (buffer.length > remaining) job.operation.outputDropped = true;
+    if (size < buffer.length) operation.outputDropped = true;
+    return bytes + size;
   }
   private endAbnormally(
     s: Session,
-    status: OperationStatusAlias,
+    status: 'interrupted' | 'unknown',
     message: string,
     expectedJob?: Job,
   ) {
@@ -762,14 +738,7 @@ export class Manager extends EventEmitter {
       if (s.activeJob !== job || job.ending) return;
       job.ending = true;
       this.append(job, job.cleaner.push(job.redactor.flush()));
-      let idle = false;
-      for (let i = 0; i < 10; i++) {
-        if (s.binding && this.isIdle(s, await this.terminal.capture(s.binding))) {
-          idle = true;
-          break;
-        }
-        await sleep(50);
-      }
+      const idle = await this.waitForPrompt(s, 10, 50);
       if (s.activeJob !== job || this.disposed) return;
       job.operation.status = 'completed';
       job.operation.exitCode = code;
@@ -784,16 +753,23 @@ export class Manager extends EventEmitter {
       this.change(s);
     });
   }
-  execute(args: ExecuteArgs & { leaseToken: string }, owner: string) {
-    return this.executeCommand(args, owner, 'session');
+  private findRequest(
+    { asset, requestId }: { asset: string; requestId?: string },
+    signature: string,
+    mode: ExecutionMode,
+  ) {
+    if (!requestId) return;
+    for (const operation of this.operations.values()) {
+      if (operation.asset !== asset || operation.requestId !== requestId) continue;
+      if (operation.signature !== signature || operation.executionMode !== mode)
+        throw new ToolError('REQUEST_CONFLICT', '同一请求标识对应不同命令。');
+      return operation;
+    }
   }
-  executeSubshell(args: ExecuteArgs, owner: string, touchLease = true) {
-    return this.executeCommand(args, owner, 'subshell', touchLease);
-  }
-  private async executeCommand(
+  async execute(
     args: ExecuteArgs,
     owner: string,
-    executionMode: ExecutionMode,
+    executionMode: ExecutionMode = 'session',
     touchLease = true,
   ) {
     if (executionMode === 'session') {
@@ -804,46 +780,25 @@ export class Manager extends EventEmitter {
     const signature = createHash('sha256')
       .update(JSON.stringify([args.asset, args.command, args.cwd ?? null]))
       .digest('hex');
-    if (args.requestId) {
-      const old = [...this.operations.values()].find(
-        (o) => o.asset === args.asset && o.requestId === args.requestId,
-      );
-      if (old) {
-        if (old.signature !== signature || (old.executionMode ?? 'subshell') !== executionMode)
-          throw new ToolError('REQUEST_CONFLICT', '同一请求标识对应不同命令。');
-        const s = this.sessions.get(args.asset);
-        const activeToken =
-          old.owner === owner &&
-          s?.activeJob?.operation.id === old.id &&
-          s.lease?.token === s.activeJob.token
-            ? s.activeJob.token
-            : undefined;
-        return this.wait(old.id, args.waitMs ?? 30000, args.leaseToken ?? activeToken);
-      }
-    }
+    const findExisting = () => {
+      const old = this.findRequest(args, signature, executionMode);
+      if (!old) return;
+      const s = this.sessions.get(args.asset);
+      const job = s?.activeJob;
+      const token =
+        old.owner === owner && job?.operation.id === old.id && s?.lease?.token === job.token
+          ? job.token
+          : undefined;
+      return { id: old.id, token: args.leaseToken ?? token };
+    };
+    const existing = findExisting();
+    if (existing) return this.wait(existing.id, args.waitMs ?? 30000, existing.token, touchLease);
     await this.ensure(args.asset);
     const created = await this.locked(args.asset, async () => {
       const s = this.session(args.asset);
       // Repeat deduplication under the session lock, including concurrent retries.
-      const old = args.requestId
-        ? [...this.operations.values()].find(
-            (o) => o.asset === args.asset && o.requestId === args.requestId,
-          )
-        : undefined;
-      if (old) {
-        if (old.signature !== signature || (old.executionMode ?? 'subshell') !== executionMode)
-          throw new ToolError('REQUEST_CONFLICT', '同一请求标识对应不同命令。');
-        return {
-          id: old.id,
-          token:
-            args.leaseToken ??
-            (old.owner === owner &&
-            s.activeJob?.operation.id === old.id &&
-            s.lease?.token === s.activeJob.token
-              ? s.activeJob.token
-              : undefined),
-        };
-      }
+      const existing = findExisting();
+      if (existing) return existing;
       if (s.status !== 'ready')
         return {
           pending: { status: s.status, session: this.view(s), webUrl: this.webUrl(args.asset) },
@@ -945,7 +900,12 @@ export class Manager extends EventEmitter {
     const { signature: _signature, owner: _owner, ...publicOperation } = o;
     const result: OperationResult = {
       ...publicOperation,
-      output: cleanOutput(this.store.redact(buf.toString('utf8'))),
+      output: cleanOutput(
+        redact(
+          buf.toString('utf8'),
+          Object.values(this.store.credentials()).map((c) => c.password),
+        ),
+      ),
       cursor: cursor + buf.length,
       truncated: cursor + buf.length < total,
     };
@@ -1029,14 +989,8 @@ export class Manager extends EventEmitter {
       .digest('hex');
     await this.ensure(args.asset);
     const created = await this.locked(args.asset, async () => {
-      const old = args.requestId
-        ? [...this.operations.values()].find(
-            (o) => o.asset === args.asset && o.requestId === args.requestId,
-          )
-        : undefined;
+      const old = this.findRequest(args, signature, 'subshell');
       if (old) {
-        if (old.signature !== signature || (old.executionMode ?? 'subshell') !== 'subshell')
-          throw new ToolError('REQUEST_CONFLICT', '同一请求标识对应不同批量命令。');
         return {
           id: old.id,
           token:
@@ -1098,10 +1052,11 @@ export class Manager extends EventEmitter {
     const s = this.session(args.asset);
     try {
       let failed = 0;
+      let bytes = 0;
       for (let i = 0; i < args.commands.length; i++) {
         if (this.disposed) return;
         this.checkLease(s, group.token, undefined, false);
-        let child = (await this.executeSubshell(
+        const outcome = await this.execute(
           {
             asset: args.asset,
             command: args.commands[i],
@@ -1111,9 +1066,12 @@ export class Manager extends EventEmitter {
             waitMs: 0,
           },
           owner,
+          'subshell',
           false,
-        )) as OperationResult;
-        if (!child.id) throw new ToolError('NOT_READY', '会话不可用，后续命令未执行。');
+        );
+        if (!outcome || !('id' in outcome))
+          throw new ToolError('NOT_READY', '会话不可用，后续命令未执行。');
+        let child = outcome;
         operation.steps!.push(child.id);
         this.store.saveOperation(operation);
         this.change(s);
@@ -1123,13 +1081,13 @@ export class Manager extends EventEmitter {
           child = await this.wait(child.id, 1000);
         }
         const header = `\n[${i + 1}/${args.commands.length}] ${this.safe(s, args.commands[i])}\n`;
-        this.appendBatchOutput(operation, Buffer.from(header));
+        bytes = this.appendOutput(operation, Buffer.from(header), bytes);
         const fd = fs.openSync(this.store.outputPath(child.id), 'r');
         try {
           const chunk = Buffer.alloc(65536);
           let read;
           while ((read = fs.readSync(fd, chunk, 0, chunk.length, null)) > 0)
-            this.appendBatchOutput(operation, chunk.subarray(0, read));
+            bytes = this.appendOutput(operation, chunk.subarray(0, read), bytes);
         } finally {
           fs.closeSync(fd);
         }
@@ -1164,30 +1122,22 @@ export class Manager extends EventEmitter {
       this.change(s);
     }
   }
-  private appendBatchOutput(operation: Operation, buffer: Buffer) {
-    const file = this.store.outputPath(operation.id);
-    const bytes = fs.statSync(file).size;
-    const remaining = MAX_OUTPUT - bytes;
-    if (remaining > 0) fs.appendFileSync(file, buffer.subarray(0, remaining));
-    if (buffer.length > remaining) operation.outputDropped = true;
-  }
-  private async recover(s: Session, release: boolean) {
-    this.setStatus(s, 'recovering', '正在确认中断结果。');
-    let idle = false;
-    for (let i = 0; i < 30; i++) {
-      if (s.binding && this.isIdle(s, await this.terminal.capture(s.binding))) {
-        idle = true;
-        break;
-      }
-      await sleep(100);
+  private async waitForPrompt(s: Session, attempts: number, interval: number) {
+    for (let i = 0; i < attempts; i++) {
+      if (s.binding && this.isIdle(s, await this.terminal.capture(s.binding))) return true;
+      await delay(interval);
     }
+    return false;
+  }
+  private async recover(s: Session) {
+    this.setStatus(s, 'recovering', '正在确认中断结果。');
+    const idle = await this.waitForPrompt(s, 30, 100);
     if (s.activeJob)
       this.endAbnormally(
         s,
         idle ? 'interrupted' : 'unknown',
         idle ? '命令已中断并返回提示符。' : '中断结果无法确认。',
       );
-    if (release) s.lease = undefined;
     this.setStatus(
       s,
       idle ? 'ready' : 'needs_attention',
@@ -1204,7 +1154,7 @@ export class Manager extends EventEmitter {
         if (!s.binding) return;
         try {
           await this.terminal.key(s.binding, 'Ctrl-C');
-          await this.recover(s, true);
+          await this.recover(s);
         } catch {
           this.endAbnormally(s, 'unknown', '占用超时，连接状态无法确认。');
           this.setStatus(s, 'needs_attention', '占用超时，无法确认中断结果。');
@@ -1349,7 +1299,7 @@ export class Manager extends EventEmitter {
     const b = c.bastions.find((b) => b.id === id);
     if (!b) throw new ToolError('UNKNOWN_BASTION', '找不到堡垒机。');
     if (username) {
-      if (!/^[A-Za-z0-9_.@-]+$/.test(username))
+      if (!accountNamePattern.test(username))
         throw new ToolError('INVALID_USERNAME', '用户名格式不正确。');
       b.username = username;
       this.store.saveConfig(c);
@@ -1385,7 +1335,7 @@ export class Manager extends EventEmitter {
     const credentials = this.store.credentials();
     return {
       config,
-      sessions: this.list(),
+      sessions: this.list(config.assets),
       batches: [...this.batches.values()],
       credentials: Object.fromEntries(
         config.bastions.map((b) => [b.id, Boolean(credentials[b.id]?.password)]),
@@ -1420,10 +1370,7 @@ export class Manager extends EventEmitter {
       case 'import':
         return this.importSession(args.asset, args.socket, args.name);
       case 'discover':
-        return [
-          ...(await this.terminal.list('bastion-bridge')),
-          ...(await this.terminal.list('bastion-bridge-inspect')),
-        ];
+        return this.terminal.list(TMUX_SOCKET);
       case 'verify_host':
         return this.verifyHost(args.asset, args.fingerprint);
       case 'code':
@@ -1453,7 +1400,7 @@ export class Manager extends EventEmitter {
       case 'exec':
         return this.execute(args, owner);
       case 'subshell_exec':
-        return this.executeSubshell(args, owner);
+        return this.execute(args, owner, 'subshell');
       case 'subshell_batch':
         return this.executeSubshellBatch(args, owner);
       case 'operation_wait':
@@ -1488,4 +1435,3 @@ export class Manager extends EventEmitter {
     this.commandBatches.clear();
   }
 }
-type OperationStatusAlias = 'interrupted' | 'unknown';

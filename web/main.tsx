@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -20,7 +20,6 @@ type State = {
   batches: Batch[];
   credentials: Record<string, boolean>;
   operations: Operation[];
-  webUrl: string;
 };
 const labels: Record<string, string> = {
   connecting: '连接中',
@@ -154,6 +153,7 @@ function App() {
   const [subshell, setSubshell] = useState(false);
   const [result, setResult] = useState<OperationResult>();
   const batchRef = useRef('');
+  const activeBatch = state?.batches.find((b) => b.status === 'running' || b.status === 'paused');
   useEffect(() => {
     const events = new EventSource('/api/events');
     events.onmessage = (event) => {
@@ -161,10 +161,6 @@ function App() {
       setOnline(true);
     };
     events.onerror = () => setOnline(false);
-    fetch('/api/state')
-      .then((r) => r.json())
-      .then(setState)
-      .catch(() => setOnline(false));
     return () => events.close();
   }, []);
   useEffect(() => {
@@ -176,15 +172,14 @@ function App() {
       );
   }, [state, asset]);
   useEffect(() => {
-    const b = state?.batches.find((b) => b.status === 'running' || b.status === 'paused');
-    if (b) {
-      const key = `${b.id}:${b.index}`;
-      if (key !== batchRef.current && b.assets[b.index]) {
-        batchRef.current = key;
-        setAsset(b.assets[b.index]);
-      }
+    if (!activeBatch) return;
+    const key = `${activeBatch.id}:${activeBatch.index}`;
+    const current = activeBatch.assets[activeBatch.index];
+    if (key !== batchRef.current && current) {
+      batchRef.current = key;
+      setAsset(current);
     }
-  }, [state?.batches]);
+  }, [activeBatch]);
   useEffect(() => {
     const timer = setInterval(() => {
       for (const [name, token] of Object.entries(tokens))
@@ -236,7 +231,6 @@ function App() {
   const configAsset = state?.config.assets.find((a) => a.name === asset);
   const bastion = state?.config.bastions.find((b) => b.id === configAsset?.bastion);
   const token = tokens[asset];
-  const activeBatch = state?.batches.find((b) => b.status === 'running' || b.status === 'paused');
   async function perform(fn: () => Promise<any>) {
     setBusy(true);
     setNotice('');
@@ -259,10 +253,21 @@ function App() {
     setCloseRequest(0);
     setModal('config');
   }
-  async function sessionAction(action: string, extra = {}) {
+  function sessionAction(action: string, extra = {}) {
     return perform(() => call(action, { asset, ...extra }));
   }
-  async function credentialsOpen() {
+  function endInput(action: 'release' | 'confirm') {
+    return perform(async () => {
+      await call(action, action === 'release' ? { asset, leaseToken: token } : { asset });
+      setTokens((tokens) => {
+        if (tokens[asset] !== token) return tokens;
+        const next = { ...tokens };
+        delete next[asset];
+        return next;
+      });
+    });
+  }
+  function credentialsOpen() {
     setUsername(bastion?.username ?? '');
     setPassword('');
     setRemember(Boolean(bastion && state?.credentials[bastion.id]));
@@ -333,7 +338,7 @@ function App() {
             </button>
           </div>
           <div className="assets">
-            {state.config.assets.map((a) => {
+            {state.config.assets.map((a, index) => {
               const s = state.sessions.find((s) => s.asset === a.name)!;
               return (
                 <div className={`asset ${asset === a.name ? 'active' : ''}`} key={a.name}>
@@ -371,10 +376,7 @@ function App() {
                       {labels[s.status]}
                     </small>
                   </button>
-                  <button
-                    aria-label={`配置 ${a.name}`}
-                    onClick={() => openConfig(state.config.assets.indexOf(a))}
-                  >
+                  <button aria-label={`配置 ${a.name}`} onClick={() => openConfig(index)}>
                     配置
                   </button>
                 </div>
@@ -538,19 +540,7 @@ function App() {
               >
                 {token ? '重新接管' : current?.lease ? '接管并撤销占用' : '接管终端'}
               </button>
-              <button
-                disabled={busy || !token}
-                onClick={() =>
-                  perform(async () => {
-                    await call('release', { asset, leaseToken: token });
-                    setTokens((t) => {
-                      const n = { ...t };
-                      delete n[asset];
-                      return n;
-                    });
-                  })
-                }
-              >
+              <button disabled={busy || !token} onClick={() => endInput('release')}>
                 释放
               </button>
               <button
@@ -584,16 +574,7 @@ function App() {
             <div>
               <button
                 disabled={busy || !['needs_attention', 'ready'].includes(current?.status ?? '')}
-                onClick={() =>
-                  perform(async () => {
-                    await call('confirm', { asset });
-                    setTokens((t) => {
-                      const n = { ...t };
-                      delete n[asset];
-                      return n;
-                    });
-                  })
-                }
+                onClick={() => endInput('confirm')}
               >
                 确认终端可复用
               </button>
@@ -653,8 +634,9 @@ function App() {
               <div className="result">
                 <div>
                   <strong>
-                    {labels[result.status]} ·{' '}
-                    {result.executionMode === 'session' ? '当前 Shell' : '独立子 Shell'}
+                    {labels[result.status]}
+                    {result.executionMode === 'session' && ' · 当前 Shell'}
+                    {result.executionMode === 'subshell' && ' · 独立子 Shell'}
                     {result.exitCode !== null ? ` · 退出码 ${result.exitCode}` : ''}
                   </strong>
                   <small>{result.id}</small>

@@ -56,11 +56,11 @@ export class CommandFrame {
   private pending = '';
   private readonly beginPattern: RegExp;
   private readonly endPattern: RegExp;
-  started = false;
-  ended = false;
+  private started = false;
+  private ended = false;
   constructor(
-    readonly begin: string,
-    readonly end: string,
+    private readonly begin: string,
+    private readonly end: string,
     private output: (s: string) => void,
     private complete: (code: number) => void,
   ) {

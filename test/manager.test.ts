@@ -32,8 +32,12 @@ test(
       requestId: 'cross-caller',
       waitMs: 0,
     };
-    const first = (await f.manager.executeSubshell(args, 'first-process')) as OperationResult;
-    const second = (await f.manager.executeSubshell(args, 'restarted-process')) as OperationResult;
+    const first = (await f.manager.execute(args, 'first-process', 'subshell')) as OperationResult;
+    const second = (await f.manager.execute(
+      args,
+      'restarted-process',
+      'subshell',
+    )) as OperationResult;
     assert.equal(second.id, first.id);
     assert.equal(second.leaseToken, undefined);
     await assert.rejects(() => f.manager.acquire('local-test', 'other-agent'), {
@@ -42,7 +46,7 @@ test(
     const done = await f.manager.wait(first.id, 3000, first.leaseToken);
     assert.equal(done.output, 'once\n');
     assert.equal(
-      ((await f.manager.executeSubshell(args, 'another-process')) as OperationResult).id,
+      ((await f.manager.execute(args, 'another-process', 'subshell')) as OperationResult).id,
       first.id,
     );
   },
@@ -55,9 +59,10 @@ test(
     const f = await localFixture();
     t.after(f.cleanup);
     const run = (command: string, requestId?: string) =>
-      f.manager.executeSubshell(
+      f.manager.execute(
         { asset: 'local-test', command, requestId, waitMs: 3000 },
         'test',
+        'subshell',
       ) as Promise<OperationResult>;
     let result = await run("printf 'first-中文'; printf ' error' >&2; exit 7", 'one');
     assert.equal(result.status, 'completed');
@@ -70,9 +75,10 @@ test(
     await run('cd /; export BASTION_BRIDGE_TEST_VAR=abc; exit 0');
     result = await run('printf "%s" "${BASTION_BRIDGE_TEST_VAR-unset}"');
     assert.equal(result.output, 'unset');
-    result = (await f.manager.executeSubshell(
+    result = (await f.manager.execute(
       { asset: 'local-test', command: 'pwd', cwd: '/tmp', waitMs: 3000 },
       'test',
+      'subshell',
     )) as OperationResult;
     assert.equal(result.output, '/tmp\n');
     result = await run("printf 'next\\n'");
@@ -93,9 +99,10 @@ test(
     assert.equal(attempts.filter((x) => x.status === 'fulfilled').length, 1);
     const winner = attempts.find((x) => x.status === 'fulfilled') as PromiseFulfilledResult<any>;
     const token = winner.value.lease.token;
-    const pending = (await f.manager.executeSubshell(
+    const pending = (await f.manager.execute(
       { asset: 'local-test', command: 'sleep 0.3; echo finished', leaseToken: token, waitMs: 0 },
       'one',
+      'subshell',
     )) as OperationResult;
     const human = await f.manager.takeover('local-test', 'human');
     assert.throws(() => f.manager.renew('local-test', token), { code: 'LEASE_INVALID' });
@@ -112,9 +119,10 @@ test(
   async (t) => {
     const f = await localFixture();
     t.after(f.cleanup);
-    const pending = (await f.manager.executeSubshell(
+    const pending = (await f.manager.execute(
       { asset: 'local-test', command: 'sleep 30; echo should-not-run', waitMs: 30 },
       'test',
+      'subshell',
     )) as OperationResult;
     assert.equal(pending.status, 'running');
     assert.ok(pending.leaseToken);
@@ -135,9 +143,10 @@ test(
   async (t) => {
     const f = await localFixture();
     t.after(f.cleanup);
-    const output = (await f.manager.executeSubshell(
+    const output = (await f.manager.execute(
       { asset: 'local-test', command: 'python3 -c \'print("汉" * 30000)\'', waitMs: 5000 },
       'test',
+      'subshell',
     )) as OperationResult;
     assert.equal(output.status, 'completed');
     assert.equal(output.truncated, true);
@@ -227,8 +236,8 @@ test(
       requestId: 'running-retry',
       waitMs: 0,
     };
-    const a = (await f.manager.executeSubshell(args, 'test')) as OperationResult;
-    const b = (await f.manager.executeSubshell(args, 'test')) as OperationResult;
+    const a = (await f.manager.execute(args, 'test', 'subshell')) as OperationResult;
+    const b = (await f.manager.execute(args, 'test', 'subshell')) as OperationResult;
     assert.equal(a.id, b.id);
     assert.equal(a.leaseToken, b.leaseToken);
     const done = await f.manager.wait(b.id, 3000, b.leaseToken);
@@ -242,9 +251,10 @@ test(
     const f = await localFixture();
     t.after(f.cleanup);
     const acquired = await f.manager.takeover('local-test', 'human');
-    const pending = (await f.manager.executeSubshell(
+    const pending = (await f.manager.execute(
       { asset: 'local-test', command: 'sleep 30', leaseToken: acquired.lease.token, waitMs: 20 },
       'web',
+      'subshell',
     )) as OperationResult;
     await f.manager.send('local-test', acquired.lease.token, '\x03');
     assert.ok(['completed', 'interrupted'].includes(f.manager.result(pending.id).status));
@@ -298,6 +308,5 @@ test('config editing validates before saving and protects connected assets and b
   assert.equal(f.store.password('qizhi'), 'config-test-password');
   await f.manager.close('local-test');
   next.assets[0].ip = '192.0.2.3';
-  next.bastions[0].host = 'other.example';
   assert.deepEqual(f.manager.saveConfig(next), next);
 });

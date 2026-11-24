@@ -3,11 +3,8 @@ export class Redactor {
   private pending = '';
   constructor(private secrets: () => string[]) {}
   push(chunk: string): string {
-    let text = this.pending + chunk;
-    const secrets = this.secrets()
-      .filter(Boolean)
-      .sort((a, b) => b.length - a.length);
-    for (const secret of secrets) text = text.split(secret).join('[REDACTED]');
+    const secrets = this.secrets().filter(Boolean);
+    const text = redact(this.pending + chunk, secrets);
     let hold = 0;
     for (const secret of secrets)
       for (let n = 1; n < secret.length && n <= text.length; n++)
@@ -20,4 +17,9 @@ export class Redactor {
     this.pending = '';
     return result;
   }
+}
+export function redact(text: string, secrets: string[]): string {
+  for (const secret of [...new Set(secrets)].filter(Boolean).sort((a, b) => b.length - a.length))
+    text = text.replaceAll(secret, '[REDACTED]');
+  return text;
 }

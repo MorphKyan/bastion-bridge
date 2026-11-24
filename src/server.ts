@@ -5,11 +5,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { Store } from './core/store.js';
-import { Manager } from './core/manager.js';
+import { Manager, terminalVisible } from './core/manager.js';
 import { actions, type Action } from './actions.js';
-import { ToolError } from './shared.js';
+import { ToolError, type SessionView } from './shared.js';
 
 function errorResult(error: unknown) {
   return {
@@ -39,7 +38,7 @@ async function holdLock(store: Store) {
   });
   return child;
 }
-export async function startServer(store = new Store(process.env.BASTION_BRIDGE_HOME)) {
+export async function startServer(store = new Store()) {
   const lock = await holdLock(store);
   const manager = new Manager(store);
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
@@ -48,9 +47,7 @@ export async function startServer(store = new Store(process.env.BASTION_BRIDGE_H
   const clients = new Set<http.ServerResponse>();
   const rpc = async (body: any) => {
     try {
-      if (!body || typeof body.action !== 'string' || !(body.action in actions))
-        throw new ToolError('UNKNOWN_ACTION', '未知调用。');
-      if (body.action === 'toString' || !Object.hasOwn(actions, body.action))
+      if (typeof body?.action !== 'string' || !Object.hasOwn(actions, body.action))
         throw new ToolError('UNKNOWN_ACTION', '未知调用。');
       const args = actions[body.action as Action].parse(body.args ?? {});
       return {
@@ -88,7 +85,7 @@ export async function startServer(store = new Store(process.env.BASTION_BRIDGE_H
       res.end(JSON.stringify(errorResult(null)));
       return;
     }
-    if (body.action === 'shutdown') {
+    if (body?.action === 'shutdown') {
       res.end(JSON.stringify({ ok: true, result: { stopped: true, sessionsPreserved: true } }));
       setTimeout(() => void close(), 20);
       return;
@@ -156,19 +153,18 @@ export async function startServer(store = new Store(process.env.BASTION_BRIDGE_H
     for (const res of clients) res.write(':keepalive\n\n');
   }, 15000);
   keepalive.unref();
-  app.get('/terminal/:asset', { websocket: true }, (socket, req) => {
-    const asset = (req.params as any).asset;
-    let subscribed = true;
+  app.get<{ Params: { asset: string } }>('/terminal/:asset', { websocket: true }, (socket, req) => {
+    const { asset } = req.params;
     let pending = 0;
     let missed = false;
-    const visible = (status?: string) =>
-      ['ready', 'recovering', 'needs_attention'].includes(status ?? '');
-    let wasVisible = visible(manager.list().find((s) => s.asset === asset)?.status);
+    let wasVisible = terminalVisible(manager.list().find((s) => s.asset === asset)?.status);
     const send = (value: unknown) => {
       if (socket.readyState === 1) socket.send(JSON.stringify(value));
     };
+    const sendSnapshot = async () =>
+      send({ type: 'snapshot', text: await manager.snapshot(asset) });
     const output = (name: string, text: string) => {
-      if (name !== asset || !subscribed) return;
+      if (name !== asset) return;
       if (socket.bufferedAmount > 1024 * 1024 || pending > 512 * 1024) {
         missed = true;
         return;
@@ -177,70 +173,53 @@ export async function startServer(store = new Store(process.env.BASTION_BRIDGE_H
       send({ type: 'output', text });
     };
     manager.on('output', output);
-    const stateChanged = (session?: { asset: string; status: string }) => {
-      if (!session || session.asset !== asset) return;
-      const nowVisible = visible(session.status);
+    const stateChanged = (session?: SessionView) => {
+      if (session?.asset !== asset) return;
+      const nowVisible = terminalVisible(session.status);
       if (nowVisible !== wasVisible) {
         wasVisible = nowVisible;
-        void manager
-          .snapshot(asset)
-          .then((text) => send({ type: 'snapshot', text }))
-          .catch(() => {});
+        void sendSnapshot().catch(() => {});
       }
     };
     manager.on('change', stateChanged);
-    void manager
-      .snapshot(asset)
-      .then((text) => send({ type: 'snapshot', text }))
-      .catch(() => {});
-    socket.on('message', (data: any) => {
-      void (async () => {
-        try {
-          const message = JSON.parse(data.toString());
-          if (message.type === 'ack') {
-            if (
-              !Number.isInteger(message.bytes) ||
-              message.bytes < 0 ||
-              message.bytes > 1024 * 1024
-            )
-              return;
-            pending = Math.max(0, pending - message.bytes);
-            if (missed && pending < 64 * 1024) {
-              missed = false;
-              send({
-                type: 'snapshot',
-                text: await manager.snapshot(asset),
-                message: '输出过快，已重新同步终端屏幕。',
-              });
-            }
+    void sendSnapshot().catch(() => {});
+    socket.on('message', async (data: Buffer) => {
+      try {
+        const message = JSON.parse(data.toString());
+        if (message.type === 'ack') {
+          if (!Number.isInteger(message.bytes) || message.bytes < 0 || message.bytes > 1024 * 1024)
             return;
+          pending = Math.max(0, pending - message.bytes);
+          if (missed && pending < 64 * 1024) {
+            missed = false;
+            await sendSnapshot();
           }
-          if (message.type === 'input')
-            await manager.call(
-              'send',
-              actions.send.parse({
-                asset,
-                leaseToken: message.leaseToken,
-                text: message.text,
-              }),
-            );
-          else if (message.type === 'resize')
-            await manager.call(
-              'resize',
-              actions.resize.parse({
-                asset,
-                leaseToken: message.leaseToken,
-                cols: message.cols,
-                rows: message.rows,
-              }),
-            );
-        } catch (e) {
-          send({ type: 'error', message: e instanceof ToolError ? e.message : '终端输入无效。' });
+          return;
         }
-      })();
+        if (message.type === 'input')
+          await manager.call(
+            'send',
+            actions.send.parse({
+              asset,
+              leaseToken: message.leaseToken,
+              text: message.text,
+            }),
+          );
+        else if (message.type === 'resize')
+          await manager.call(
+            'resize',
+            actions.resize.parse({
+              asset,
+              leaseToken: message.leaseToken,
+              cols: message.cols,
+              rows: message.rows,
+            }),
+          );
+      } catch (e) {
+        send({ type: 'error', message: e instanceof ToolError ? e.message : '终端输入无效。' });
+      }
     });
     socket.on('close', () => {
-      subscribed = false;
       manager.off('output', output);
       manager.off('change', stateChanged);
     });
@@ -307,19 +286,5 @@ export async function startServer(store = new Store(process.env.BASTION_BRIDGE_H
     await close();
     throw e;
   }
-  return { manager, app, close };
-}
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  startServer()
-    .then((server) => {
-      process.stdout.write(`bastion bridge listening at ${server.manager.webUrl()}\n`);
-      process.on('SIGINT', () => void server.close());
-      process.on('SIGTERM', () => void server.close());
-    })
-    .catch((e) => {
-      process.stderr.write(
-        (e instanceof ToolError ? e.message : '后台启动失败，请检查端口、配置和依赖。') + '\n',
-      );
-      process.exitCode = 1;
-    });
+  return { manager, close };
 }

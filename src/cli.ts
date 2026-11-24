@@ -7,7 +7,7 @@ import { ToolError } from './shared.js';
 
 const help = `bastion bridge — 本机堡垒机会话工具
   bastion-bridge serve                         前台运行（停止后 SSH 保留）
-  bastion-bridge start | stop | web | status
+  bastion-bridge start | stop | status
   bastion-bridge exec ASSET 'COMMAND' --lease TOKEN [--cwd DIR] [--request-id ID] [--wait-ms 30000]
   bastion-bridge subshell-exec ASSET 'COMMAND' [--cwd DIR] [--lease TOKEN] [--request-id ID]
   bastion-bridge subshell-batch ASSET --commands-file FILE [--lease TOKEN] [--request-id ID]
@@ -66,18 +66,12 @@ async function main() {
     process.stdout.write(JSON.stringify(await stopDaemon()) + '\n');
     return;
   }
-  await ensureDaemon();
   const asset = p[1];
   const leaseToken = v.lease;
   const waitMs = v['wait-ms'] ? Number(v['wait-ms']) : undefined;
   let action: string;
   let args: any = {};
-  if (command === 'start' || command === 'web') {
-    const state = await rpc('state');
-    process.stdout.write(JSON.stringify({ webUrl: state.webUrl }) + '\n');
-    return;
-  }
-  if (command === 'status') action = 'state';
+  if (command === 'start' || command === 'status') action = 'state';
   else if (command === 'list') action = 'list';
   else if (command === 'exec' || command === 'subshell-exec') {
     action = command === 'exec' ? 'exec' : 'subshell_exec';
@@ -149,11 +143,14 @@ async function main() {
     action = p[1];
     args = v['args-file'] ? JSON.parse(fs.readFileSync(v['args-file'], 'utf8')) : {};
   } else throw new ToolError('UNKNOWN_COMMAND', '未知命令，使用 --help 查看。');
+  await ensureDaemon();
   const result = await rpc(action, args);
-  process.stdout.write(
-    JSON.stringify(command === 'config' && !v['config-file'] ? result.config : result, null, 2) +
-      '\n',
-  );
+  if (command === 'start') process.stdout.write(JSON.stringify({ webUrl: result.webUrl }) + '\n');
+  else
+    process.stdout.write(
+      JSON.stringify(command === 'config' && !v['config-file'] ? result.config : result, null, 2) +
+        '\n',
+    );
 }
 main().catch((e) => {
   process.stderr.write(

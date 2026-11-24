@@ -1,9 +1,19 @@
 import { z } from 'zod';
-const asset = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+import { identifierPattern } from './shared.js';
+
+const asset = z.string().regex(identifierPattern);
 const token = z.string().uuid();
 const waitMs = z.number().int().min(0).max(60000).optional();
 const requestId = z.string().min(1).max(200).optional();
 const lease = { asset, leaseToken: token };
+const command = z.string().min(1).max(65536);
+const execution = {
+  asset,
+  cwd: z.string().max(4096).optional(),
+  requestId,
+  waitMs,
+};
+const subshell = { ...execution, leaseToken: token.optional() };
 export const actions = {
   state: z.object({}),
   config_save: z.object({ config: z.unknown() }),
@@ -41,28 +51,14 @@ export const actions = {
   confirm: z.object({ asset }),
   close: z.object({ asset }),
   exec: z.object({
-    asset,
-    command: z.string().min(1).max(65536),
-    cwd: z.string().max(4096).optional(),
+    ...execution,
+    command,
     leaseToken: token,
-    requestId,
-    waitMs,
   }),
-  subshell_exec: z.object({
-    asset,
-    command: z.string().min(1).max(65536),
-    cwd: z.string().max(4096).optional(),
-    leaseToken: token.optional(),
-    requestId,
-    waitMs,
-  }),
+  subshell_exec: z.object({ ...subshell, command }),
   subshell_batch: z.object({
-    asset,
-    commands: z.array(z.string().min(1).max(65536)).min(1).max(100),
-    cwd: z.string().max(4096).optional(),
-    leaseToken: token.optional(),
-    requestId,
-    waitMs,
+    ...subshell,
+    commands: z.array(command).min(1).max(100),
     stopOnError: z.boolean().optional(),
   }),
   operation_wait: z.object({ operationId: token, waitMs, leaseToken: token.optional() }),
@@ -80,21 +76,7 @@ export const actions = {
   batch_action: z.object({ id: token, action: z.enum(['retry', 'skip', 'cancel']) }),
 } as const;
 export type Action = keyof typeof actions;
-export const agentActions: Action[] = [
-  'list',
-  'acquire',
-  'renew',
-  'release',
-  'send',
-  'key',
-  'read',
-  'exec',
-  'subshell_exec',
-  'subshell_batch',
-  'operation_wait',
-  'operation_read',
-];
-export const descriptions: Partial<Record<Action, string>> = {
+export const agentActions = {
   list: '列出配置资产名称、IP、登录状态和占用者。不会读取终端内容。',
   acquire:
     '按资产名称复用或建立连接并申请独占输入。可填 purpose（最多 200 字符），网页资产列表会显示用途和占用者。等待密码/验证码时返回网页地址；已占用时返回 SESSION_BUSY。保存返回的 lease.token 用于交互调用。',
@@ -113,4 +95,4 @@ export const descriptions: Partial<Record<Action, string>> = {
     '等待某次命令完成，直接返回结果；最长等待 60 秒。运行中请传 leaseToken 续期。不会重新执行命令。',
   operation_read:
     '按 operationId 只读取该命令的结果，可用 cursor 分段读取长输出；不会读取整个终端历史。',
-};
+} satisfies Partial<Record<Action, string>>;

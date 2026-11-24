@@ -4,16 +4,14 @@ import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Config, Binding, Operation } from '../shared.js';
-import { ToolError } from '../shared.js';
+import { ToolError, accountNamePattern, identifierPattern } from '../shared.js';
 
-const name = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+const name = z.string().regex(identifierPattern);
+const username = z.string().regex(accountNamePattern);
 const assetSchema = z.object({
   name,
   ip: z.ipv4(),
-  username: z
-    .string()
-    .regex(/^[A-Za-z0-9_.@-]+$/)
-    .optional(),
+  username: username.optional(),
   bastion: name,
   promptPattern: z.string().max(256).optional(),
 });
@@ -25,7 +23,7 @@ export const configSchema = z
         name: z.string().min(1),
         host: z.string().regex(/^[A-Za-z0-9_.-]+$/),
         port: z.number().int().min(1).max(65535),
-        username: z.string().regex(/^[A-Za-z0-9_.@-]+$/),
+        username,
         fingerprint: z
           .string()
           .regex(/^SHA256:[A-Za-z0-9+/]+$/)
@@ -59,19 +57,12 @@ export const configSchema = z
         message: 'Duplicate asset connection identities are not allowed.',
       });
   });
-export function defaultConfig(): Config {
-  return {
-    port: 8765,
-    leaseSeconds: 300,
-    bastions: [],
-    assets: [],
-  };
-}
+const defaultConfig: Config = { port: 8765, leaseSeconds: 300, bastions: [], assets: [] };
 export class Store {
   readonly configDir: string;
   readonly stateDir: string;
   readonly socketPath: string;
-  constructor(base?: string) {
+  constructor(base = process.env.BASTION_BRIDGE_HOME) {
     this.configDir = base
       ? path.join(base, 'config')
       : path.join(
@@ -89,7 +80,7 @@ export class Store {
       fs.chmodSync(dir, 0o700);
     }
     this.socketPath = path.join(this.stateDir, 'daemon.sock');
-    if (!fs.existsSync(this.configPath)) this.write(this.configPath, defaultConfig());
+    if (!fs.existsSync(this.configPath)) this.write(this.configPath, defaultConfig);
   }
   get configPath() {
     return path.join(this.configDir, 'config.json');
@@ -100,7 +91,7 @@ export class Store {
   get knownHostsPath() {
     return path.join(this.configDir, 'known_hosts');
   }
-  read<T>(file: string, fallback: T): T {
+  private read<T>(file: string, fallback: T): T {
     try {
       return JSON.parse(fs.readFileSync(file, 'utf8'));
     } catch (e: any) {
@@ -108,7 +99,7 @@ export class Store {
       throw new ToolError('STORE_INVALID', 'A private state file is invalid; inspect it locally.');
     }
   }
-  write(file: string, value: unknown) {
+  private write(file: string, value: unknown) {
     const tmp = `${file}.${randomUUID()}.tmp`;
     try {
       fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
@@ -121,7 +112,7 @@ export class Store {
     }
   }
   config(): Config {
-    return configSchema.parse(this.read(this.configPath, defaultConfig()));
+    return configSchema.parse(this.read(this.configPath, defaultConfig));
   }
   saveConfig(value: unknown): Config {
     const c = configSchema.parse(value);
@@ -140,13 +131,6 @@ export class Store {
     else c[id] = { password };
     this.write(path.join(this.configDir, 'credentials.json'), c);
   }
-  redact(text: string, extra: string[] = []): string {
-    for (const secret of [...Object.values(this.credentials()).map((c) => c.password), ...extra]
-      .filter(Boolean)
-      .sort((a, b) => b.length - a.length))
-      text = text.split(secret).join('[REDACTED]');
-    return text;
-  }
   bindings(): Binding[] {
     return this.read(path.join(this.stateDir, 'sessions.json'), []);
   }
@@ -160,8 +144,8 @@ export class Store {
     return fs
       .readdirSync(this.operationDir)
       .filter((f) => /^[a-f0-9-]+\.json$/.test(f))
-      .map((f) => this.read<Operation>(path.join(this.operationDir, f), null!))
-      .filter(Boolean);
+      .map((f) => this.read<Operation | null>(path.join(this.operationDir, f), null))
+      .filter((operation) => operation !== null);
   }
   outputPath(id: string) {
     if (!/^[a-f0-9-]+$/.test(id)) throw new ToolError('INVALID_OPERATION', 'Invalid operation ID.');

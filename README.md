@@ -22,7 +22,7 @@ node dist/cli.js start
 | 保存的凭据、SSH 主机记录 | 同目录的 `credentials.json`、`known_hosts` |
 | 会话状态、操作结果、日志 | `~/.local/state/bastion-bridge/`           |
 
-支持 `XDG_CONFIG_HOME`、`XDG_STATE_HOME`；`BASTION_BRIDGE_HOME` 可指定独立目录，其下使用 `config/` 和 `state/`。改名升级时，将新目录链接到原私有目录，保留配置、凭据及 `sessions.json` 中的 tmux socket 记录，已有 SSH 可继续复用。项目所在目录无需改名。
+支持 `XDG_CONFIG_HOME`、`XDG_STATE_HOME`；`BASTION_BRIDGE_HOME` 可指定独立目录，其下使用 `config/` 和 `state/`。
 
 真实配置、凭据和运行状态应放在仓库外。私有目录权限为 `700`，配置、凭据、操作文件和 Unix socket 为 `600`。密码和验证码通过网页或私有文件输入，不要放进命令行参数；网页不使用 localStorage 保存凭据。
 
@@ -33,7 +33,7 @@ node dist/cli.js start
 3. 默认只读监控；点击“接管”撤销旧 Agent 令牌后输入命令，回到 Shell 提示符后“释放”。命令面板也需先接管。
 4. 多资产可“串行登录”；失败可重试、跳过或取消，成功连接保留。
 
-“导入已有连接”发现默认 `bastion-bridge` / `bastion-bridge-inspect` socket 的终端；其他 socket 用 CLI `import`。导入前核实目标资产，导入保留 SSH。“确认终端可复用”仅在已回到配置的 Shell 提示符时恢复待确认终端。
+“导入已有连接”发现默认 `bastion-bridge` socket 的终端；其他 socket 用 CLI `import`。导入前核实目标资产，导入保留 SSH。“确认终端可复用”仅在已回到配置的 Shell 提示符时恢复待确认终端。
 
 ## Agent：CLI / MCP
 

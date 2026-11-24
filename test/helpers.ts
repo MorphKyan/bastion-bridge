@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { Store } from '../src/core/store.js';
 import { Manager } from '../src/core/manager.js';
 import { Tmux } from '../src/core/tmux.js';
@@ -16,11 +17,11 @@ export async function eventually<T>(
   while (Date.now() < end) {
     const value = await fn();
     if (predicate(value)) return value;
-    await new Promise((r) => setTimeout(r, 30));
+    await delay(30);
   }
   throw new Error('Timed out waiting for test condition.');
 }
-export async function localFixture() {
+export async function localShell(asset = 'local-test', port?: number) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bastion-bridge-test-'));
   const store = new Store(root);
   const terminal = new Tmux();
@@ -28,7 +29,8 @@ export async function localFixture() {
   config.bastions = [
     { id: 'qizhi', name: 'Test bastion', host: '127.0.0.1', port: 22, username: 'tester' },
   ];
-  config.assets = [{ name: 'local-test', ip: '127.0.0.1', username: 'tester', bastion: 'qizhi' }];
+  config.assets = [{ name: asset, ip: '127.0.0.1', username: 'tester', bastion: 'qizhi' }];
+  if (port !== undefined) config.port = port;
   store.saveConfig(config);
   const socket = `bastion-bridge-test-${randomUUID().slice(0, 12)}`;
   const binding = await terminal.create(
@@ -40,20 +42,30 @@ export async function localFixture() {
     () => terminal.capture(binding),
     (s) => s.trimEnd().endsWith('[tester@local ~]$'),
   );
-  const manager = new Manager(store, terminal);
-  await manager.importSession('local-test', socket, 'fixture');
   return {
-    manager,
     terminal,
     store,
     root,
     socket,
     cleanup: async () => {
-      manager.dispose();
       try {
-        await terminal.close({ ...binding, name: 'local-test' });
+        await terminal.close({ ...binding, name: asset });
       } catch {}
       fs.rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
+
+export async function localFixture() {
+  const shell = await localShell();
+  const manager = new Manager(shell.store, shell.terminal);
+  await manager.importSession('local-test', shell.socket, 'fixture');
+  return {
+    ...shell,
+    manager,
+    cleanup: () => {
+      manager.dispose();
+      return shell.cleanup();
     },
   };
 }

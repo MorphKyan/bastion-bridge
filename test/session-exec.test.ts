@@ -44,7 +44,7 @@ test(
       'local:shared:helper',
     );
     assert.equal(f.manager.list()[0].lease?.owner, 'agent');
-    const child = (await f.manager.executeSubshell(
+    const child = (await f.manager.execute(
       {
         asset: 'local-test',
         leaseToken: f.lease.token,
@@ -52,6 +52,7 @@ test(
         waitMs: 3000,
       },
       'agent',
+      'subshell',
     )) as OperationResult;
     assert.equal(child.executionMode, 'subshell');
     assert.equal(child.output, 'unset:changed');
@@ -151,9 +152,10 @@ test(
     assert.equal((await f.run('builtin printf "%s" "$COUNT"')).output, '1');
     await assert.rejects(
       () =>
-        f.manager.executeSubshell(
+        f.manager.execute(
           { asset: 'local-test', command, leaseToken: f.lease.token, requestId: 'counter' },
           'agent',
+          'subshell',
         ),
       { code: 'REQUEST_CONFLICT' },
     );
@@ -167,7 +169,7 @@ test(
 );
 
 test(
-  'historical operations without executionMode retain subshell deduplication after restart',
+  'historical operations without executionMode stay readable and cannot be replayed',
   { timeout: 10000 },
   async (t) => {
     const f = await localFixture();
@@ -178,7 +180,7 @@ test(
       requestId: 'legacy',
       waitMs: 3000,
     };
-    const first = (await f.manager.executeSubshell(args, 'agent')) as OperationResult;
+    const first = (await f.manager.execute(args, 'agent', 'subshell')) as OperationResult;
     const saved = f.store.operations().find((o) => o.id === first.id)!;
     delete saved.executionMode;
     f.store.saveOperation(saved);
@@ -186,12 +188,16 @@ test(
     const restored = new Manager(f.store, f.terminal);
     t.after(() => restored.dispose());
     await restored.restore();
-    assert.equal(restored.result(first.id).executionMode, 'subshell');
-    assert.equal(((await restored.executeSubshell(args, 'agent')) as OperationResult).id, first.id);
+    assert.equal(restored.result(first.id).executionMode, undefined);
+    assert.equal(restored.result(first.id).output, 'historical\n');
+    await assert.rejects(() => restored.execute(args, 'agent', 'subshell'), {
+      code: 'REQUEST_CONFLICT',
+    });
     const { lease } = await restored.acquire('local-test', 'agent');
     await assert.rejects(() => restored.execute({ ...args, leaseToken: lease.token }, 'agent'), {
       code: 'REQUEST_CONFLICT',
     });
+    assert.equal(restored.operations.size, 1);
   },
 );
 

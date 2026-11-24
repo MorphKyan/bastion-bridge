@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Store, configSchema } from '../src/core/store.js';
+import { Store } from '../src/core/store.js';
 
 test('new stores start empty and preserve existing private configuration', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bastion-bridge-store-'));
@@ -11,8 +11,7 @@ test('new stores start empty and preserve existing private configuration', (t) =
   const store = new Store(root);
   assert.deepEqual(store.config().bastions, []);
   assert.deepEqual(store.config().assets, []);
-  const example = configSchema.parse(JSON.parse(fs.readFileSync('config.example.json', 'utf8')));
-  store.saveConfig(example);
+  const example = store.saveConfig(JSON.parse(fs.readFileSync('config.example.json', 'utf8')));
   store.savePassword('qizhi', 'test-only-password');
   const configBefore = fs.readFileSync(store.configPath);
   const credentialsBefore = fs.readFileSync(path.join(store.configDir, 'credentials.json'));

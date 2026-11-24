@@ -10,6 +10,14 @@ import { Store } from '../src/core/store.js';
 import { localFixture } from './helpers.js';
 import { rpc, stopDaemon } from '../src/client.js';
 
+const exec = promisify(execFile);
+async function cli(root: string, ...args: string[]) {
+  const { stdout } = await exec(process.execPath, ['--import', 'tsx', 'src/cli.ts', ...args], {
+    env: { ...process.env, BASTION_BRIDGE_HOME: root },
+  });
+  return JSON.parse(stdout);
+}
+
 async function freePort(): Promise<number> {
   const s = net.createServer();
   await new Promise<void>((r) => s.listen(0, '127.0.0.1', r));
@@ -17,32 +25,26 @@ async function freePort(): Promise<number> {
   await new Promise<void>((r) => s.close(() => r()));
   return port;
 }
-test(
-  'stop waits for shutdown and immediate restart preserves SSH',
-  { timeout: 15000 },
-  async (t) => {
-    const f = await localFixture();
-    f.manager.dispose();
-    t.after(f.cleanup);
-    const config = f.store.config();
-    config.port = await freePort();
-    f.store.saveConfig(config);
-    const first = await startServer(f.store);
-    t.after(() => first.close());
-    await stopDaemon(f.store);
-    const second = await startServer(f.store);
-    t.after(() => second.close());
-    assert.equal(second.manager.list()[0].status, 'ready');
-    const result = await rpc(
-      'subshell_exec',
-      { asset: 'local-test', command: 'echo preserved', waitMs: 2000 },
-      'test',
-      f.store,
-    );
+test('stop waits for shutdown and CLI autostart preserves SSH', { timeout: 15000 }, async (t) => {
+  const f = await localFixture();
+  f.manager.dispose();
+  t.after(f.cleanup);
+  const config = f.store.config();
+  config.port = await freePort();
+  f.store.saveConfig(config);
+  const first = await startServer(f.store);
+  t.after(() => first.close());
+  await stopDaemon(f.store);
+  await cli(f.root, 'start');
+  try {
+    assert.equal((await cli(f.root, 'list'))[0].status, 'ready');
+    const result = await cli(f.root, 'subshell-exec', 'local-test', 'echo preserved');
     assert.equal(result.output, 'preserved\n');
     assert.equal(result.exitCode, 0);
-  },
-);
+  } finally {
+    await stopDaemon(f.store);
+  }
+});
 test(
   'HTTP and Unix socket share leases; duplicate daemon refused; MCP executes and returns structured output',
   { timeout: 20000 },
@@ -110,7 +112,7 @@ test(
         'operation_read',
       ].sort(),
     );
-    for (const action of ['session_acquire', 'exec_batch']) {
+    for (const action of ['session_acquire', 'exec_batch', 'toString', 'shutdown']) {
       const old = await fetch(url + '/api/rpc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -176,29 +178,20 @@ test(
     assert.ok((await rpc('list', {}, 'CLI-test', f.store))[0].lease);
     await client.callTool({ name: 'release', arguments: { asset: 'local-test', leaseToken } });
     assert.equal((await rpc('list', {}, 'CLI-test', f.store))[0].lease, undefined);
-    const cli = async (...args: string[]) => {
-      const result = await promisify(execFile)(
-        process.execPath,
-        ['--import', 'tsx', 'src/cli.ts', ...args],
-        {
-          env: { ...process.env, BASTION_BRIDGE_HOME: f.root },
-        },
-      );
-      return JSON.parse(result.stdout);
-    };
-    const cliLease = (await cli('acquire', 'local-test')).lease.token;
+    const runCli = (...args: string[]) => cli(f.root, ...args);
+    const cliLease = (await runCli('acquire', 'local-test')).lease.token;
     assert.equal(
-      (await cli('exec', 'local-test', 'CLI_LOCAL=cli', '--lease', cliLease)).executionMode,
+      (await runCli('exec', 'local-test', 'CLI_LOCAL=cli', '--lease', cliLease)).executionMode,
       'session',
     );
     assert.equal(
-      (await cli('exec', 'local-test', 'builtin printf "%s" "$CLI_LOCAL"', '--lease', cliLease))
+      (await runCli('exec', 'local-test', 'builtin printf "%s" "$CLI_LOCAL"', '--lease', cliLease))
         .output,
       'cli',
     );
     assert.equal(
       (
-        await cli(
+        await runCli(
           'subshell-exec',
           'local-test',
           'printf "%s" "${CLI_LOCAL-unset}"',
@@ -208,19 +201,19 @@ test(
       ).output,
       'unset',
     );
-    await cli('release', 'local-test', '--lease', cliLease);
+    await runCli('release', 'local-test', '--lease', cliLease);
     await assert.rejects(
-      () => cli('exec', 'local-test', 'echo denied'),
+      () => runCli('exec', 'local-test', 'echo denied'),
       (e: any) => JSON.parse(e.stderr).error.code === 'LEASE_REQUIRED',
     );
     await assert.rejects(
-      () => cli('exec-batch', 'local-test'),
+      () => runCli('exec-batch', 'local-test'),
       (e: any) => JSON.parse(e.stderr).error.code === 'UNKNOWN_COMMAND',
     );
     assert.equal(
-      (await cli('subshell-exec', 'local-test', 'echo isolated')).executionMode,
+      (await runCli('subshell-exec', 'local-test', 'echo isolated')).executionMode,
       'subshell',
     );
-    assert.equal((await cli('list'))[0].lease, undefined);
+    assert.equal((await runCli('list'))[0].lease, undefined);
   },
 );

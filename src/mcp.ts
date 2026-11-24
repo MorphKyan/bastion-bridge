@@ -2,17 +2,18 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { randomUUID } from 'node:crypto';
-import { actions, agentActions, descriptions } from './actions.js';
+import { actions, agentActions } from './actions.js';
 import { ensureDaemon, rpc } from './client.js';
 import { ToolError } from './shared.js';
 
 const server = new McpServer({ name: 'bastion-bridge', version: '0.1.0' });
 const owner = `Agent ${randomUUID().slice(0, 8)}`;
-for (const action of agentActions) {
+for (const [name, description] of Object.entries(agentActions)) {
+  const action = name as keyof typeof agentActions;
   server.registerTool(
     action,
     {
-      description: descriptions[action],
+      description,
       inputSchema: actions[action].shape,
       annotations: {
         readOnlyHint: ['list', 'operation_read'].includes(action),
@@ -24,7 +25,7 @@ for (const action of agentActions) {
         ),
       },
     },
-    async (args: any) => {
+    async (args: unknown) => {
       try {
         await ensureDaemon();
         const result = await rpc(action, args, owner);
