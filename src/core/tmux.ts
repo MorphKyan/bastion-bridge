@@ -9,6 +9,8 @@ import { ToolError } from '../shared.js';
 import { decodeTmuxBytes } from './framing.js';
 
 const exec = promisify(execFile);
+type SendOptions = { submit?: boolean; bracketedPaste?: boolean };
+
 export interface TerminalBridge extends EventEmitter {
   readonly ready: Promise<void>;
   close(): void;
@@ -17,7 +19,7 @@ export interface Terminal {
   create(socket: string, name: string, command: string): Promise<Binding>;
   exists(binding: Binding): Promise<boolean>;
   capture(binding: Binding): Promise<string>;
-  send(binding: Binding, text: string, submit?: boolean): Promise<void>;
+  send(binding: Binding, text: string, options?: SendOptions): Promise<void>;
   key(binding: Binding, key: string): Promise<void>;
   resize(binding: Binding, cols: number, rows: number): Promise<void>;
   close(binding: Binding): Promise<void>;
@@ -63,7 +65,7 @@ export class Tmux implements Terminal {
   async capture(b: Binding) {
     return this.run(b.socket, ['capture-pane', '-p', '-t', b.pane, '-S', '-1000']);
   }
-  async send(b: Binding, text: string, submit = false) {
+  async send(b: Binding, text: string, { submit, bracketedPaste }: SendOptions = {}) {
     const buffer = `bastion-bridge-${randomUUID()}`;
     await new Promise<void>((resolve, reject) => {
       const child = spawn('tmux', ['-L', b.socket, 'load-buffer', '-b', buffer, '-'], {
@@ -80,12 +82,15 @@ export class Tmux implements Terminal {
       child.stdin.on('error', () => {});
       child.stdin.end(text);
     });
+    // A literal paste terminator could end bracketed input early.
+    const flags = bracketedPaste && !text.includes('\x1b[201~') ? '-dp' : '-d';
     try {
-      await this.run(b.socket, ['paste-buffer', '-d', '-b', buffer, '-t', b.pane]);
-    } finally {
+      await this.run(b.socket, ['paste-buffer', flags, '-b', buffer, '-t', b.pane]);
+    } catch (error) {
       try {
         await this.run(b.socket, ['delete-buffer', '-b', buffer]);
       } catch {}
+      throw error;
     }
     if (submit) await this.key(b, 'Enter');
   }

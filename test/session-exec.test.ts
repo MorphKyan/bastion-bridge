@@ -87,17 +87,32 @@ test(
 );
 
 test(
-  'default exec frames multiline commands and failures even with overridden printf/eval',
+  'default exec pastes multiline commands and frames failures with overridden printf/eval',
   { timeout: 10000 },
   async (t) => {
     const f = await setup(t);
-    assert.equal(
-      (
-        await f.run(
-          "printf() { builtin printf shadow; }\neval() { builtin printf bad-eval; }\nalias printf='false'\nalias eval='false'\nbuiltin printf 'first-中文\\n'\nfalse",
-        )
-      ).exitCode,
-      1,
+    const configured = await f.run(
+      `builtin bind 'set enable-bracketed-paste on'; PS2='bridge-''continuation> '`,
+    );
+    assert.equal(configured.exitCode, 0);
+    const { cursor } = f.manager.read('local-test', f.lease.token);
+    const multiline = await f.run(
+      [
+        'printf() { builtin printf shadow; }',
+        'eval() { builtin printf bad-eval; }',
+        "alias printf='false'",
+        "alias eval='false'",
+        "cat <<-'END'",
+        "\tfirst-中文 'quoted'",
+        '\tEND',
+        'false',
+      ].join('\n'),
+    );
+    assert.equal(multiline.exitCode, 1);
+    assert.equal(multiline.output, "first-中文 'quoted'\n");
+    assert.doesNotMatch(
+      f.manager.read('local-test', f.lease.token, cursor).output,
+      /bridge-continuation>/,
     );
     assert.equal((await f.run("builtin printf 'second\\n'")).output, 'second\n');
     const failed = await f.run('builtin printf should-not-run', {
@@ -107,7 +122,8 @@ test(
     assert.equal(failed.exitCode, 1);
     assert.ok(!failed.output.includes('should-not-run'));
     assert.equal(f.manager.list()[0].status, 'ready');
-    assert.equal((await f.run('builtin printf alive')).output, 'alive');
+    assert.equal((await f.run("builtin bind 'set enable-bracketed-paste off'")).exitCode, 0);
+    assert.equal((await f.run('builtin printf alive\n:')).output, 'alive');
   },
 );
 

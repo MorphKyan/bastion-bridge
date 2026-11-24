@@ -439,7 +439,7 @@ export class Manager extends EventEmitter {
         s.passwordSubmitted = true;
         s.submittedPrompt = tail;
         s.status = 'connecting';
-        await this.terminal.send(s.binding, password, true);
+        await this.terminal.send(s.binding, password, { submit: true });
         this.change(s);
       } else if (/请选择目标资产[：:]\s*$/.test(tail)) {
         if (s.queuedAction === 'asset') {
@@ -450,7 +450,7 @@ export class Manager extends EventEmitter {
         s.queuedAction = 'asset';
         s.submittedPrompt = tail;
         s.status = 'connecting';
-        await this.terminal.send(s.binding, this.asset(s.asset).ip, true);
+        await this.terminal.send(s.binding, this.asset(s.asset).ip, { submit: true });
         this.change(s);
       } else if (/请选择登录账号[：:]\s*$/.test(tail)) {
         const menu = screen.slice(Math.max(0, screen.lastIndexOf('登录账号列表')));
@@ -474,7 +474,7 @@ export class Manager extends EventEmitter {
         s.queuedAction = 'username';
         s.submittedPrompt = tail;
         s.status = 'connecting';
-        await this.terminal.send(s.binding, username, true);
+        await this.terminal.send(s.binding, username, { submit: true });
         this.change(s);
       } else if (/会话已结束。按下 ENTER/.test(tail.split('\n').at(-1) ?? '')) {
         s.lease = undefined;
@@ -520,7 +520,7 @@ export class Manager extends EventEmitter {
       s.submittedPrompt = tail;
       s.queuedAction = undefined;
       s.status = 'connecting';
-      await this.terminal.send(s.binding, code, true);
+      await this.terminal.send(s.binding, code, { submit: true });
       this.armLoginTimeout(s);
       this.change(s);
       this.scheduleInspect(s);
@@ -664,7 +664,7 @@ export class Manager extends EventEmitter {
         throw new ToolError('NOT_READY', '终端当前不可输入。');
       if (s.activeJob && lease.kind !== 'human')
         throw new ToolError('OPERATION_RUNNING', '请等待或中断当前命令。');
-      await this.terminal.send(s.binding, text, submit);
+      await this.terminal.send(s.binding, text, { submit });
       this.scheduleInspect(s);
       return { accepted: true };
     });
@@ -901,7 +901,10 @@ export class Manager extends EventEmitter {
       s.activeJob = job;
       this.change(s);
       try {
-        await this.terminal.send(s.binding!, framing.line, true);
+        await this.terminal.send(s.binding!, framing.line, {
+          submit: true,
+          bracketedPaste: framing.line.includes('\n'),
+        });
       } catch {
         this.endAbnormally(s, 'unknown', '发送结果无法确认，不会自动重试。', job);
         if (s.lease?.token === job.token) this.setStatus(s, 'needs_attention');
