@@ -18,4 +18,4 @@
 
 ## Local Java
 
-If Java is needed, select JDK 21 per command using `JAVA_HOME=/opt/jdks/jdk-21 PATH=/opt/jdks/jdk-21/bin:$PATH`. SDKMAN is at `/root/.sdkman` and has a different default Java.
+If Java is needed, select an installed JDK 21 with SDKMAN in the build shell.
