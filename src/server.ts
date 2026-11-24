@@ -157,6 +157,9 @@ export async function startServer(store = new Store()) {
     const { asset } = req.params;
     let pending = 0;
     let missed = false;
+    let leaseToken: string | undefined;
+    let renewAfter = 0;
+    let awaitingPong = false;
     let wasVisible = terminalVisible(manager.list().find((s) => s.asset === asset)?.status);
     const send = (value: unknown) => {
       if (socket.readyState === 1) socket.send(JSON.stringify(value));
@@ -183,9 +186,37 @@ export async function startServer(store = new Store()) {
     };
     manager.on('change', stateChanged);
     void sendSnapshot().catch(() => {});
+    // Browsers answer protocol pings even when page timers are suspended.
+    const heartbeat = setInterval(() => {
+      if (socket.readyState !== 1) return;
+      if (awaitingPong) return socket.terminate();
+      awaitingPong = true;
+      socket.ping();
+    }, 3000);
+    socket.on('pong', () => {
+      if (!awaitingPong) return;
+      awaitingPong = false;
+      if (!leaseToken || Date.now() < renewAfter) return;
+      try {
+        const { expiresAt } = manager.renew(asset, leaseToken, 'human');
+        renewAfter = Date.now() + Math.min(15000, (expiresAt - Date.now()) / 3);
+      } catch {
+        leaseToken = undefined;
+      }
+    });
     socket.on('message', async (data: Buffer) => {
       try {
         const message = JSON.parse(data.toString());
+        if (message.type === 'lease') {
+          leaseToken = undefined;
+          renewAfter = 0;
+          if (message.leaseToken !== null) {
+            const args = actions.renew.parse({ asset, leaseToken: message.leaseToken });
+            manager.renew(asset, args.leaseToken, 'human');
+            leaseToken = args.leaseToken;
+          }
+          return;
+        }
         if (message.type === 'ack') {
           if (!Number.isInteger(message.bytes) || message.bytes < 0 || message.bytes > 1024 * 1024)
             return;
@@ -220,6 +251,7 @@ export async function startServer(store = new Store()) {
       }
     });
     socket.on('close', () => {
+      clearInterval(heartbeat);
       manager.off('output', output);
       manager.off('change', stateChanged);
     });

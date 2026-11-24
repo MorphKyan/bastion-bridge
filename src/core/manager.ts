@@ -608,9 +608,9 @@ export class Manager extends EventEmitter {
       };
     });
   }
-  renew(name: string, token: string) {
+  renew(name: string, token: string, kind?: Lease['kind']) {
     const s = this.session(name);
-    const lease = this.checkLease(s, token);
+    const lease = this.checkLease(s, token, kind);
     this.change(s);
     return { ...lease };
   }

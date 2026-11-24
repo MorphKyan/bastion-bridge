@@ -174,6 +174,19 @@ test(
     assert.equal(fs.statSync(f.store.configDir + '/config.json').mode & 0o777, 0o600);
   },
 );
+test('restart drops a stale pane binding while preserving the local tmux session', async (t) => {
+  const f = await localFixture();
+  t.after(f.cleanup);
+  const [binding] = f.store.bindings();
+  f.store.saveBindings([{ ...binding, pane: '%999999' }]);
+  f.manager.dispose();
+  const restored = new Manager(f.store, f.terminal);
+  t.after(() => restored.dispose());
+  await restored.restore();
+  assert.equal(restored.list()[0].status, 'disconnected');
+  assert.deepEqual(f.store.bindings(), []);
+  assert.equal(await f.terminal.exists(binding), true);
+});
 test(
   'terminal delta cursor is per caller and normal output cannot trigger password submission',
   { timeout: 15000 },

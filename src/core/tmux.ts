@@ -56,8 +56,15 @@ export class Tmux implements Terminal {
   }
   async exists(b: Binding) {
     try {
-      await this.run(b.socket, ['display-message', '-p', '-t', b.pane, '#{pane_id}']);
-      return true;
+      const panes = await this.run(b.socket, [
+        'list-panes',
+        '-s',
+        '-t',
+        `=${b.name}`,
+        '-F',
+        '#{pane_id}',
+      ]);
+      return panes.trim().split('\n').includes(b.pane);
     } catch {
       return false;
     }

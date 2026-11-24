@@ -112,6 +112,57 @@ test('takeover revokes an agent token and cross-origin calls are rejected', asyn
   await expect(assetBody.locator('.asset-lease')).toHaveCount(0);
 });
 
+test('returning to the terminal reconnects after a socket close and a failed renewal', async ({
+  page,
+}) => {
+  let dropConnection: (() => void) | undefined;
+  let connections = 0;
+  await page.routeWebSocket('**/terminal/demo', (socket) => {
+    socket.connectToServer();
+    connections++;
+    dropConnection = () => socket.close();
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: '接管终端', exact: true }).click();
+  await expect(page.locator('.terminal-title')).toContainText('你已获得输入权');
+  await expect.poll(() => connections).toBe(1);
+  await page.route('**/api/rpc', async (route) => {
+    if (route.request().postDataJSON().action === 'renew') await route.abort();
+    else await route.continue();
+  });
+  const renewal = page.waitForEvent('requestfailed', {
+    predicate: (request) => request.postDataJSON()?.action === 'renew',
+  });
+  dropConnection!();
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await renewal;
+  await expect.poll(() => connections).toBe(2);
+  await expect(page.locator('.terminal-title')).toContainText('你已获得输入权');
+  await page.locator('.terminal .xterm-screen').click();
+  await page.keyboard.insertText("printf '%s%s\\n' reconnect -ok");
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('terminal')).toContainText('reconnect-ok');
+  await page.getByRole('button', { name: '释放', exact: true }).click();
+});
+
+test('a connected terminal renews its lease while the page timers are paused', async ({
+  page,
+  request,
+}) => {
+  const now = Date.now();
+  await page.clock.install({ time: now });
+  await page.clock.pauseAt(now + 1000);
+  await page.goto('/');
+  await page.getByRole('button', { name: '接管终端', exact: true }).click();
+  await expect(page.locator('.terminal-title')).toContainText('你已获得输入权');
+  const expiresAt = async () =>
+    (await (await request.get('/api/state')).json()).sessions[0].lease?.expiresAt ?? 0;
+  const initialExpiry = await expiresAt();
+  expect(initialExpiry).toBeGreaterThan(0);
+  await expect.poll(expiresAt, { timeout: 7000 }).toBeGreaterThan(initialExpiry + 1000);
+  await page.getByRole('button', { name: '释放', exact: true }).click();
+});
+
 test('configuration forms add, edit, validate and remove servers without JSON', async ({
   page,
   request,

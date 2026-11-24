@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import './style.css';
 import { ConfigEditor } from './config-editor';
+import { ToolError } from '../src/shared';
 import type {
   Config,
   SessionView,
@@ -47,24 +48,26 @@ async function call(action: string, args: unknown = {}): Promise<any> {
     body: JSON.stringify({ action, args, owner: '网页用户' }),
   });
   const result = await response.json();
-  if (!result.ok) throw new Error(result.error.message);
+  if (!result.ok) throw new ToolError(result.error.code, result.error.message);
   return result.result;
 }
 function WebTerminal({
   asset,
   token,
   report,
+  onConnection,
 }: {
   asset: string;
   token?: string;
   report: (message: string) => void;
+  onConnection: (online: boolean) => void;
 }) {
   const mount = useRef<HTMLDivElement>(null);
   const tokenRef = useRef(token);
   tokenRef.current = token;
-  const resizeRef = useRef<() => void>(undefined);
+  const syncInputRef = useRef<() => void>(undefined);
   useEffect(() => {
-    if (token) resizeRef.current?.();
+    syncInputRef.current?.();
   }, [token]);
   useEffect(() => {
     const terminal = new Terminal({
@@ -83,12 +86,12 @@ function WebTerminal({
     terminal.loadAddon(fit);
     terminal.open(mount.current!);
     fit.fit();
-    const socket = new WebSocket(
-      `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/terminal/${encodeURIComponent(asset)}`,
-    );
+    const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/terminal/${encodeURIComponent(asset)}`;
+    let socket: WebSocket | undefined;
+    let retry: number | undefined;
     const resize = () => {
       fit.fit();
-      if (socket.readyState === 1 && tokenRef.current)
+      if (socket?.readyState === WebSocket.OPEN && tokenRef.current)
         socket.send(
           JSON.stringify({
             type: 'resize',
@@ -98,33 +101,75 @@ function WebTerminal({
           }),
         );
     };
-    resizeRef.current = resize;
-    socket.onopen = resize;
-    socket.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      if (message.type === 'snapshot') {
-        terminal.reset();
-        terminal.write(message.text.replace(/\n\s*$/, '').replace(/\r?\n/g, '\r\n'));
-      }
-      if (message.type === 'output')
-        terminal.write(message.text, () => {
-          if (socket.readyState === 1)
-            socket.send(
-              JSON.stringify({ type: 'ack', bytes: new TextEncoder().encode(message.text).length }),
-            );
-        });
-      if (message.type === 'error') report(message.message);
+    const syncInput = () => {
+      terminal.options.disableStdin = socket?.readyState !== WebSocket.OPEN || !tokenRef.current;
+      if (socket?.readyState === WebSocket.OPEN)
+        socket.send(JSON.stringify({ type: 'lease', leaseToken: tokenRef.current ?? null }));
+      resize();
     };
+    syncInputRef.current = syncInput;
+    const connect = () => {
+      if (socket && socket.readyState < WebSocket.CLOSING) return;
+      clearTimeout(retry);
+      const connection = new WebSocket(url);
+      socket = connection;
+      onConnection(false);
+      syncInput();
+      connection.onopen = () => {
+        if (socket !== connection) return;
+        syncInput();
+        onConnection(true);
+      };
+      connection.onmessage = (event) => {
+        if (socket !== connection) return;
+        const message = JSON.parse(event.data);
+        if (message.type === 'snapshot') {
+          terminal.reset();
+          terminal.write(message.text.replace(/\n\s*$/, '').replace(/\r?\n/g, '\r\n'));
+        }
+        if (message.type === 'output')
+          terminal.write(message.text, () => {
+            if (socket === connection && connection.readyState === WebSocket.OPEN)
+              connection.send(
+                JSON.stringify({
+                  type: 'ack',
+                  bytes: new TextEncoder().encode(message.text).length,
+                }),
+              );
+          });
+        if (message.type === 'error') report(message.message);
+      };
+      connection.onclose = () => {
+        if (socket !== connection) return;
+        syncInput();
+        onConnection(false);
+        retry = window.setTimeout(connect, 1000);
+      };
+    };
+    const resume = () => {
+      if (!document.hidden) connect();
+    };
+    connect();
+    document.addEventListener('visibilitychange', resume);
+    window.addEventListener('pageshow', resume);
+    window.addEventListener('online', resume);
     const subscription = terminal.onData((text) => {
-      if (socket.readyState === 1 && tokenRef.current)
+      if (socket?.readyState === WebSocket.OPEN && tokenRef.current)
         socket.send(JSON.stringify({ type: 'input', text, leaseToken: tokenRef.current }));
     });
     const observer = new ResizeObserver(resize);
     observer.observe(mount.current!);
     return () => {
+      document.removeEventListener('visibilitychange', resume);
+      window.removeEventListener('pageshow', resume);
+      window.removeEventListener('online', resume);
+      clearTimeout(retry);
+      syncInputRef.current = undefined;
       observer.disconnect();
       subscription.dispose();
-      socket.close();
+      const connection = socket;
+      socket = undefined;
+      connection?.close();
       terminal.dispose();
     };
   }, [asset]);
@@ -137,6 +182,7 @@ function App() {
   const [tokens, setTokens] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState('');
   const [online, setOnline] = useState(true);
+  const [terminalOnline, setTerminalOnline] = useState(false);
   const [modal, setModal] = useState<'credentials' | 'config' | 'import' | undefined>();
   const [configIndex, setConfigIndex] = useState<number>();
   const [configInitial, setConfigInitial] = useState<Config>();
@@ -154,6 +200,7 @@ function App() {
   const [result, setResult] = useState<OperationResult>();
   const batchRef = useRef('');
   const activeBatch = state?.batches.find((b) => b.status === 'running' || b.status === 'paused');
+  const leaseSeconds = state?.config.leaseSeconds ?? 300;
   useEffect(() => {
     const events = new EventSource('/api/events');
     events.onmessage = (event) => {
@@ -181,19 +228,37 @@ function App() {
     }
   }, [activeBatch]);
   useEffect(() => {
-    const timer = setInterval(() => {
+    if (!Object.keys(tokens).length) return;
+    const renew = () => {
       for (const [name, token] of Object.entries(tokens))
-        void call('renew', { asset: name, leaseToken: token }).catch(() =>
+        void call('renew', { asset: name, leaseToken: token }).catch((error) => {
+          if (
+            !(error instanceof ToolError) ||
+            !['LEASE_INVALID', 'NOT_CONNECTED', 'UNKNOWN_ASSET'].includes(error.code)
+          )
+            return;
           setTokens((t) => {
             if (t[name] !== token) return t;
             const n = { ...t };
             delete n[name];
             return n;
-          }),
-        );
-    }, 15000);
-    return () => clearInterval(timer);
-  }, [tokens]);
+          });
+        });
+    };
+    const resume = () => {
+      if (!document.hidden) renew();
+    };
+    const timer = setInterval(renew, Math.min(15000, (leaseSeconds * 1000) / 3));
+    document.addEventListener('visibilitychange', resume);
+    window.addEventListener('pageshow', resume);
+    window.addEventListener('online', resume);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', resume);
+      window.removeEventListener('pageshow', resume);
+      window.removeEventListener('online', resume);
+    };
+  }, [tokens, leaseSeconds]);
   useEffect(() => {
     if (result?.status !== 'running') return;
     let active = true;
@@ -555,14 +620,24 @@ function App() {
             <div className="terminal-title">
               <span>● ● ●</span>
               <span>
-                {token
-                  ? '你已获得输入权'
-                  : current?.lease
-                    ? `只读监控 · ${current.lease.owner} 占用中`
-                    : '只读监控 · 接管后可输入'}
+                {asset && !terminalOnline
+                  ? '终端重连中…'
+                  : token
+                    ? '你已获得输入权'
+                    : current?.lease
+                      ? `只读监控 · ${current.lease.owner} 占用中`
+                      : '只读监控 · 接管后可输入'}
               </span>
             </div>
-            {asset && <WebTerminal key={asset} asset={asset} token={token} report={setNotice} />}
+            {asset && (
+              <WebTerminal
+                key={asset}
+                asset={asset}
+                token={token}
+                report={setNotice}
+                onConnection={setTerminalOnline}
+              />
+            )}
           </div>
           <div className="terminal-footer">
             <span>
