@@ -46,6 +46,8 @@ node dist/cli.js exec example-asset 'pwd' --lease LEASE_TOKEN --request-id UNIQU
 node dist/cli.js release example-asset --lease LEASE_TOKEN
 ```
 
+通过 MCP 调用 `acquire` 时，可传入 `purpose`（最多 200 字符）。网页左侧资产列表会在 IP 和用户名下方显示「用途 · 占用会话」。省略时仅显示占用会话，占用结束后该行消失。
+
 `exec` 在当前远端 Bash 中运行，目录、变量和函数持续保留；可选 `--cwd` 修改当前目录。`release` 保留 SSH 和环境。`subshell-exec` / `subshell-batch` 使用独立子 Shell，可自动申请和释放占用，环境修改不传到下一步。交互程序使用 `send/read/key`；完整 CLI 参数见 `node dist/cli.js --help`。
 
 执行结果包含操作 ID、状态、退出码、输出和字节游标；唯一输出帧确定完成，stdout / stderr 合并返回。默认等待 30 秒，最多 60 秒；返回 `running` 后继续等待，长时间闲置时续期：

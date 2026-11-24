@@ -210,6 +210,9 @@ h2 {
   color: #526e7c;
   margin-top: 8px;
 }
+.asset-body .asset-lease {
+  overflow-wrap: anywhere;
+}
 .status-dot {
   margin-right: 6px;
 }

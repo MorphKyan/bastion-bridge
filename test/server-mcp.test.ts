@@ -147,8 +147,14 @@ test(
       arguments: { asset: 'local-test', command: 'echo denied' },
     });
     assert.equal(missing.isError, true);
-    const occupied = await client.callTool({ name: 'acquire', arguments: { asset: 'local-test' } });
+    const occupied = await client.callTool({
+      name: 'acquire',
+      arguments: { asset: 'local-test', purpose: '  查看服务日志  ' },
+    });
     const leaseToken = (occupied.structuredContent as any).result.lease.token;
+    const occupiedState = await (await fetch(url + '/api/state')).json();
+    assert.equal(occupiedState.sessions[0].lease.purpose, '查看服务日志');
+    assert.equal(occupiedState.sessions[0].lease.token, undefined);
     const persistent = async (command: string, requestId: string) => {
       const result = await client.callTool({
         name: 'exec',
@@ -169,6 +175,7 @@ test(
     );
     assert.ok((await rpc('list', {}, 'CLI-test', f.store))[0].lease);
     await client.callTool({ name: 'release', arguments: { asset: 'local-test', leaseToken } });
+    assert.equal((await rpc('list', {}, 'CLI-test', f.store))[0].lease, undefined);
     const cli = async (...args: string[]) => {
       const result = await promisify(execFile)(
         process.execPath,

@@ -599,10 +599,11 @@ export class Manager extends EventEmitter {
     if (touch) s.lease.expiresAt = Date.now() + this.store.config().leaseSeconds * 1000;
     return s.lease;
   }
-  private grant(s: Session, owner: string, kind: Lease['kind']): Lease {
+  private grant(s: Session, owner: string, kind: Lease['kind'], purpose?: string): Lease {
     const lease: Lease = {
       token: randomUUID(),
       owner: owner.slice(0, 100),
+      purpose: purpose || undefined,
       kind,
       expiresAt: Date.now() + this.store.config().leaseSeconds * 1000,
     };
@@ -610,7 +611,7 @@ export class Manager extends EventEmitter {
     this.change(s);
     return lease;
   }
-  async acquire(name: string, owner: string) {
+  async acquire(name: string, owner: string, purpose?: string) {
     await this.ensure(name);
     return this.locked(name, async () => {
       const s = this.session(name);
@@ -624,7 +625,11 @@ export class Manager extends EventEmitter {
         this.setStatus(s, 'needs_attention', '终端尚有未完成操作。');
         throw new ToolError('TERMINAL_BUSY', '终端未回到命令提示符。');
       }
-      return { status: 'acquired', lease: this.grant(s, owner, 'agent'), session: this.view(s) };
+      return {
+        status: 'acquired',
+        lease: this.grant(s, owner, 'agent', purpose),
+        session: this.view(s),
+      };
     });
   }
   renew(name: string, token: string) {
@@ -1426,7 +1431,7 @@ export class Manager extends EventEmitter {
       case 'username':
         return this.selectUsername(args.asset, args.username);
       case 'acquire':
-        return this.acquire(args.asset, owner);
+        return this.acquire(args.asset, owner, args.purpose);
       case 'renew':
         return this.renew(args.asset, args.leaseToken);
       case 'release':

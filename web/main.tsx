@@ -360,10 +360,15 @@ function App() {
                     <span>
                       {a.ip} · {a.username ?? '自动 / 待选择'}
                     </span>
+                    {s.lease && (
+                      <small className="asset-lease">
+                        {s.lease.purpose ? `${s.lease.purpose} · ` : ''}
+                        {s.lease.owner}
+                      </small>
+                    )}
                     <small>
                       <i className={`status-dot ${s.status}`} />
                       {labels[s.status]}
-                      {s.lease ? ` · ${s.lease.owner}` : ''}
                     </small>
                   </button>
                   <button

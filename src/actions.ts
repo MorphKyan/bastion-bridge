@@ -22,7 +22,7 @@ export const actions = {
   verify_host: z.object({ asset, fingerprint: z.string().max(100) }),
   code: z.object({ asset, code: z.string().max(32) }),
   username: z.object({ asset, username: z.string().max(100) }),
-  acquire: z.object({ asset }),
+  acquire: z.object({ asset, purpose: z.string().trim().max(200).optional() }),
   renew: z.object(lease),
   release: z.object(lease),
   takeover: z.object({ asset }),
@@ -97,7 +97,7 @@ export const agentActions: Action[] = [
 export const descriptions: Partial<Record<Action, string>> = {
   list: '列出配置资产名称、IP、登录状态和占用者。不会读取终端内容。',
   acquire:
-    '按资产名称复用或建立连接并申请独占输入。等待密码/验证码时返回网页地址；已占用时返回 SESSION_BUSY。保存返回的 lease.token 用于交互调用。',
+    '按资产名称复用或建立连接并申请独占输入。可填 purpose（最多 200 字符），网页资产列表会显示用途和占用者。等待密码/验证码时返回网页地址；已占用时返回 SESSION_BUSY。保存返回的 lease.token 用于交互调用。',
   renew: '续期占用；长时间思考或运行任务时在 5 分钟默认期限内续期。',
   release:
     '终端返回提示符后释放占用，保留 SSH 和当前 Shell 环境。运行中的任务须先中断；后续使用者会继承目录和环境。',

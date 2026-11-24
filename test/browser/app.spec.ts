@@ -82,12 +82,19 @@ test('takeover revokes an agent token and cross-origin calls are rejected', asyn
   request,
 }) => {
   const response = await request.post('/api/rpc', {
-    data: { action: 'acquire', args: { asset: 'demo' }, owner: 'test-agent' },
+    data: {
+      action: 'acquire',
+      args: { asset: 'demo', purpose: '查看服务日志' },
+      owner: 'test-agent',
+    },
   });
   const acquired = await response.json();
   expect(acquired.ok).toBeTruthy();
   await page.goto('/');
+  const assetBody = page.locator('.asset-body');
+  await expect(assetBody.locator('span + .asset-lease')).toHaveText('查看服务日志 · test-agent');
   await page.getByRole('button', { name: '接管并撤销占用' }).click();
+  await expect(assetBody.locator('.asset-lease')).toHaveText('网页用户');
   await expect(page.locator('.terminal-title')).toContainText('你已获得输入权');
   const old = await request.post('/api/rpc', {
     data: {
@@ -102,6 +109,7 @@ test('takeover revokes an agent token and cross-origin calls are rejected', asyn
   });
   expect(blocked.status()).toBe(403);
   await page.getByRole('button', { name: '释放', exact: true }).click();
+  await expect(assetBody.locator('.asset-lease')).toHaveCount(0);
 });
 
 test('configuration forms add, edit, validate and remove servers without JSON', async ({

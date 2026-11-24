@@ -34,6 +34,7 @@ export type SessionStatus =
 export interface Lease {
   token: string;
   owner: string;
+  purpose?: string;
   kind: 'agent' | 'human';
   expiresAt: number;
 }
